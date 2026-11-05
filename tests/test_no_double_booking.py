@@ -1,12 +1,12 @@
 """The one test the panel will ask about: two holds on one slot, only one survives.
 
-Run: pytest 04_build/agentic/test_no_double_booking.py -q
+Run: pytest tests/test_no_double_booking.py -q
 It works on a COPY of the database so your demo state is untouched.
 """
 import os, shutil, sqlite3, tempfile, threading
 import pytest
 
-SRC = os.path.join(os.path.dirname(__file__), "..", "..", "data", "skyways_freight_operations.db")
+SRC = os.path.join(os.path.dirname(__file__), "..", "data", "skyways_freight_operations.db")
 
 
 @pytest.fixture
