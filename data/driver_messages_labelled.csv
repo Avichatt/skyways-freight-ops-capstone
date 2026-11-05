@@ -1,0 +1,149 @@
+message_id,message_text,intent,delay_minutes,revised_eta_text,shipment_reference,latest_time_constraint,option_choice,needs_clarification,clarification_reason
+LM001,"Bhai accident ahead on highway ho gaya Pataudi road ke paas, 60 min late hounga.",REPORT_DELAY,60,,,,,0,
+LM002,Stuck at Shahpura due to traffic jam. New ETA 6:30. Shipment SHP1017.,REPORT_DELAY,,6:30,SHP1013,,,0,
+LM003,Origin released me late near Shahpura. Reaching around 2:00.,REPORT_DELAY,,2:00,,,,0,
+LM004,👍,OTHER,,,,,,1,no content
+LM005,Running 30 minutes behind because of engine overheating.,REPORT_DELAY,30,,,,,0,
+LM006,I am late by one hour.,REPORT_DELAY,60,,,,,1,delay vs new arrival time unclear
+LM007,Late hounga thoda.,REPORT_DELAY,,,,,,1,no duration given
+LM008,Is 7:30 booked or still pending?,ASK_STATUS,,,,,,0,
+LM009,"Fuel stop took long. Will reach by 9 pm now, sorry.",REPORT_DELAY,,9 pm,,,,0,
+LM010,"Stuck at Kishangarh due to brake issue, mechanic coming. New ETA 11:20. Shipment SHP1014.",REPORT_DELAY,,11:20,SHP1006,,,0,
+LM011,Option B.,CHOOSE_OPTION,,,,,B,0,
+LM012,First one is fine.,CHOOSE_OPTION,,,,,1,0,
+LM013,Traffic jam near Kotputli. Reaching around 11:20.,REPORT_DELAY,,11:20,,,,0,
+LM014,"Give me something near my ETA, not 3 hours later.",ADD_CONSTRAINT,,,,near ETA,,0,
+LM015,"Delay ho gaya, kya karu?",REPORT_DELAY,,,,,,1,"no duration, no reason"
+LM016,"Brake issue, mechanic coming. Will reach by 1 pm now, sorry.",REPORT_DELAY,,1 pm,,,,0,
+LM017,"My duty hours end at 8, cannot stay after that.",ADD_CONSTRAINT,,,,8,,0,
+LM018,"Bhai toll queue ho gaya Dausa ke paas, 60 min late hounga.",REPORT_DELAY,60,,,,,0,
+LM019,Hello?,OTHER,,,,,,1,no content
+LM020,Did you get the confirmation email from Jaipur?,ASK_STATUS,,,,,,0,
+LM021,Go with D2 at 1 pm.,CHOOSE_OPTION,,,,,D2 1 pm,0,
+LM022,"Brake issue, mechanic coming near Behror. Reaching around 3:30.",REPORT_DELAY,,3:30,,,,0,
+LM023,Repair will take 45 minutes but traffic after that is uncertain.,REPORT_DELAY,45,,,,,1,repair time is not the ETA shift
+LM024,Stuck at Neemrana due to accident ahead on highway. New ETA 11:45. Shipment SHP1017.,REPORT_DELAY,,11:45,SHP1016,,,0,
+LM025,"Please check slots, ETA 11:30.",ASK_OPTIONS,,,,,,0,
+LM026,Fuel stop took long near Bhiwadi bypass. Reaching around 4 pm.,REPORT_DELAY,,4 pm,,,,0,
+LM027,"Delay of about 120 mins at Shahpura, brake issue, mechanic coming.",REPORT_DELAY,120,,,,,0,
+LM028,"Delay of about 45 mins at Behror, rain and waterlogging.",REPORT_DELAY,45,,,,,0,
+LM029,Options after 4 pm for heavy bay?,ASK_OPTIONS,,,,,,0,
+LM030,Traffic after Shahpura. Reaching around 11:20. Any slot after 12?,REPORT_DELAY,,11:20,,,,0,duplicate of an earlier message if same thread within 2 minutes
+LM031,Kal subah ka slot mil sakta hai?,ASK_OPTIONS,,,,,,0,
+LM032,Can I unload at a different warehouse instead?,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM033,"Delay of about 120 mins at Kotputli, rain and waterlogging.",REPORT_DELAY,120,,,,,0,
+LM034,"Fuel stop took long. Will reach by 4 pm now, sorry.",REPORT_DELAY,,4 pm,,,,0,
+LM035,"Actually my ETA is now 2:15, not 1:45.",CHANGE_MIND,,2:15,,,,0,
+LM036,"Load cancelled, release the dock.",CANCEL,,,,,,0,
+LM037,Next available standard dock please.,ASK_OPTIONS,,,,,,1,"which facility or shipment, or am/pm unclear"
+LM038,"Delay of about 75 mins at Shahpura, traffic jam.",REPORT_DELAY,75,,,,,0,
+LM039,Stuck at Daruhera due to traffic jam. New ETA 11:20. Shipment SHP1012.,REPORT_DELAY,,11:20,SHP1012,,,0,
+LM040,Toll queue near Neemrana. Reaching around 2:00.,REPORT_DELAY,,2:00,,,,0,
+LM041,"Bhai traffic jam ho gaya Shahpura ke paas, 45 min late hounga.",REPORT_DELAY,45,,,,,0,
+LM042,"I have a reefer, do not give me a normal dock.",ADD_CONSTRAINT,,,,reefer only,,0,
+LM043,Running 75 minutes behind because of fuel stop took long.,REPORT_DELAY,75,,,,,0,
+LM044,Any update on my request?,ASK_STATUS,,,,,,0,
+LM045,"Police checking. Will reach by 12:30 now, sorry.",REPORT_DELAY,,12:30,,,,0,
+LM046,"My diesel card is not working, help.",OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM047,"Update: traffic cleared, reaching at 12:50.",CHANGE_MIND,,12:50,,,,0,
+LM048,"Rain and waterlogging. Will reach by 9 pm now, sorry.",REPORT_DELAY,,9 pm,,,,0,
+LM049,"Unloading must finish before 1:30, I have another load.",ADD_CONSTRAINT,,,,1:30,,0,
+LM050,"Yes, confirm the 12:30 slot.",CHOOSE_OPTION,,,,,12:30,0,
+LM051,Police checking near Kotputli. Reaching around 11:45.,REPORT_DELAY,,11:45,,,,0,
+LM052,"Bhai fuel stop took long ho gaya Kishangarh ke paas, 75 min late hounga.",REPORT_DELAY,75,,,,,0,
+LM053,Running 120 minutes behind because of fuel stop took long.,REPORT_DELAY,120,,,,,0,
+LM054,Traffic jam near Shahpura. Reaching around 7 pm.,REPORT_DELAY,,7 pm,,,,0,
+LM055,Confirm.,CHOOSE_OPTION,,,,,(unspecified),1,no option identified in message
+LM056,"Reached Jaipur but lost, will be 20 min late I think.",REPORT_DELAY,20,,,,,1,low confidence
+LM057,"Stuck at Manesar toll due to brake issue, mechanic coming. New ETA 12:30. Shipment SHP1006.",REPORT_DELAY,,12:30,SHP1012,,,0,
+LM058,Truck broke down. Mechanic says 1 to 3 hours.,REPORT_DELAY,,,,,,1,"range, low confidence"
+LM059,"Cancel that option, I will reach earlier now.",CHANGE_MIND,,,,,,0,
+LM060,"Bhai origin released me late ho gaya Neemrana ke paas, 60 min late hounga.",REPORT_DELAY,60,,,,,0,
+LM061,Give me the warehouse manager's personal number.,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM062,"Bhai rain and waterlogging ho gaya Jaipur ring road ke paas, 30 min late hounga.",REPORT_DELAY,30,,,,,0,
+LM063,Still pending? I need to tell my dispatcher.,ASK_STATUS,,,,,,0,
+LM064,"Customer cancelled the load, drop my appointment.",CANCEL,,,,,,0,
+LM065,Is it safe to drive in this rain?,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM066,Running 75 minutes behind because of police checking.,REPORT_DELAY,75,,,,,0,
+LM067,Police checking near Shahpura. Reaching around 8:15.,REPORT_DELAY,,8:15,,,,0,
+LM068,"Thoda late, 30-40 min, maybe.",REPORT_DELAY,35,,,,,1,range
+LM069,Mujhe 6 baje tak nikalna hai.,ADD_CONSTRAINT,,,,6,,0,
+LM070,.,OTHER,,,,,,1,no content
+LM071,"Can only do morning tomorrow, not tonight.",ADD_CONSTRAINT,,,,tomorrow morning,,0,
+LM072,"Late by 40, which load you want me to update?",REPORT_DELAY,40,,,,,1,driver has two shipments today
+LM073,"Traffic jam. Will reach by 11:20 now, sorry.",REPORT_DELAY,,11:20,,,,0,
+LM074,Cancel my slot for SHP1019.,CANCEL,,,SHP1019,,,0,
+LM075,Police checking near Shahpura. Reaching around 5:45.,REPORT_DELAY,,5:45,,,,0,
+LM076,"Arrived 1 hour early, can you move me up?",EARLY_ARRIVAL,,,,,,0,
+LM077,"Sent twice, network issue. Reaching 12:10.",REPORT_DELAY,,12:10,,,,0,
+LM078,ok,OTHER,,,,,,1,no content
+LM079,"Bhai brake issue, mechanic coming ho gaya Jaipur ring road ke paas, 90 min late hounga.",REPORT_DELAY,90,,,,,0,
+LM080,Take the second option.,CHOOSE_OPTION,,,,,2,0,
+LM081,Book 7:30.,CHOOSE_OPTION,,,,,7:30,0,
+LM082,"Around 2 hours late, maybe more.",REPORT_DELAY,120,,,,,1,"range, low confidence"
+LM083,Running 75 minutes behind because of toll queue.,REPORT_DELAY,75,,,,,0,
+LM084,Tyre damaged near Neemrana. Repair may take 45 minutes. Can I get a slot after 7 PM? I must leave before 9 PM for another pickup.,REPORT_DELAY,45,,,,,1,repair time plus two further intents; ETA still unknown
+LM085,Cannot wait more than one hour in the yard.,ADD_CONSTRAINT,,,,1 hour wait,,0,
+LM086,Can you pay my detention charges for yesterday?,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM087,Pick the earliest one.,CHOOSE_OPTION,,,,,earliest,0,
+LM088,"Leave it, I will take the original slot.",CHANGE_MIND,,,,,,0,
+LM089,"After 10 pm I will not unload, driver rest rule.",ADD_CONSTRAINT,,,,10 pm,,0,
+LM090,"Traffic jam. Will reach by 6:30 now, sorry.",REPORT_DELAY,,6:30,,,,0,
+LM091,"Origin released me late. Will reach by 9 pm now, sorry.",REPORT_DELAY,,9 pm,,,,0,
+LM092,Ok 6:30 wala kar do.,CHOOSE_OPTION,,,,,6:30,0,
+LM093,Running 45 minutes behind because of fuel stop took long.,REPORT_DELAY,45,,,,,0,
+LM094,"Engine overheating. Will reach by 6:30 now, sorry.",REPORT_DELAY,,6:30,,,,0,
+LM095,Is there anything before 3? I am ahead of plan.,ASK_OPTIONS,,,,,,0,
+LM096,The later one please.,CHOOSE_OPTION,,,,,later,0,
+LM097,"Bhai traffic jam ho gaya Manesar toll ke paas, 120 min late hounga.",REPORT_DELAY,120,,,,,0,
+LM098,Running 120 minutes behind because of traffic jam.,REPORT_DELAY,120,,,,,0,
+LM099,"Haan theek hai, book it.",CHOOSE_OPTION,,,,,(unspecified),1,no option identified in message
+LM100,"Status please, waiting at the dhaba.",ASK_STATUS,,,,,,0,
+LM101,"Second slot, lock it.",CHOOSE_OPTION,,,,,2,0,
+LM102,Need to be out of the gate by 7:30.,ADD_CONSTRAINT,,,,7:30,,0,
+LM103,Mujhe 9 baje se pehle kuch milega?,ASK_OPTIONS,,,,,,0,
+LM104,"Delay of about 45 mins at Neemrana, engine overheating.",REPORT_DELAY,45,,,,,0,
+LM105,"Bhai police checking ho gaya Jaipur ring road ke paas, 60 min late hounga.",REPORT_DELAY,60,,,,,0,
+LM106,"Not coming today, dispatcher told me to return.",CANCEL,,,,,,0,
+LM107,Reaching late today.,REPORT_DELAY,,,,,,1,no duration given
+LM108,Confirmed hua?,ASK_STATUS,,,,,,0,
+LM109,"Change of plan, go back to the first option.",CHANGE_MIND,,,,,,0,
+LM110,What time can you give me? ETA 2 pm.,ASK_OPTIONS,,,,,,0,
+LM111,"Bhai traffic jam ho gaya Bhiwadi bypass ke paas, 45 min late hounga.",REPORT_DELAY,45,,,,,0,
+LM112,"Tyre puncture. Will reach by 7 pm now, sorry.",REPORT_DELAY,,7 pm,,,,0,
+LM113,Any reefer slot after 5?,ASK_OPTIONS,,,,,,0,
+LM114,"Running 45 minutes behind because of brake issue, mechanic coming.",REPORT_DELAY,45,,,,,0,
+LM115,"Reached early, 45 minutes before slot. Any dock free?",EARLY_ARRIVAL,,,,,,0,
+LM116,Koi slot hai 1 baje ke baad?,ASK_OPTIONS,,,,,,1,"which facility or shipment, or am/pm unclear"
+LM117,"Rain and waterlogging. Will reach by 4 pm now, sorry.",REPORT_DELAY,,4 pm,,,,0,
+LM118,Anything after 7?,ASK_OPTIONS,,,,,,1,"which facility or shipment, or am/pm unclear"
+LM119,"Skip the 6:30, give me 8.",CHANGE_MIND,,,,,,0,
+LM120,Please tell my dispatcher I quit.,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM121,"Delay of about 75 mins at Bhiwadi bypass, accident ahead on highway.",REPORT_DELAY,75,,,,,0,
+LM122,Running 45 minutes behind because of rain and waterlogging.,REPORT_DELAY,45,,,,,0,
+LM123,"Wait, change it to the later slot.",CHANGE_MIND,,,,,,0,
+LM124,I need to leave by 9 PM for my next pickup.,ADD_CONSTRAINT,,,,9 PM,,0,
+LM125,"Gate pe hoon, jaldi pahunch gaya, D1 khaali hai kya?",EARLY_ARRIVAL,,,,,,0,
+LM126,Show me options after 12:30.,ASK_OPTIONS,,,,,,0,
+LM127,Running 30 minutes behind because of origin released me late.,REPORT_DELAY,30,,,,,0,
+LM128,Running 120 minutes behind because of police checking.,REPORT_DELAY,120,,,,,0,
+LM129,"Bhai toll queue ho gaya Kotputli ke paas, 60 min late hounga.",REPORT_DELAY,60,,,,,0,
+LM130,What is the freight rate for Jaipur to Delhi?,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM131,"Delay of about 120 mins at Kotputli, brake issue, mechanic coming.",REPORT_DELAY,120,,,,,0,
+LM132,"At the yard now, slot is at 11, anything earlier?",EARLY_ARRIVAL,,,,,,0,
+LM133,Kya slot final hai?,ASK_STATUS,,,,,,0,
+LM134,Toll queue near Bhiwadi bypass. Reaching around 12:30.,REPORT_DELAY,,12:30,,,,0,
+LM135,Where is the nearest dhaba?,OUT_OF_SCOPE,,,,,,0,needs human or outside the agent's remit
+LM136,What is the earliest slot I can get now?,ASK_OPTIONS,,,,,,0,
+LM137,Stuck at Daruhera due to origin released me late. New ETA 12:10. Shipment SHP1012.,REPORT_DELAY,,12:10,SHP1017,,,0,
+LM138,Running 60 minutes behind because of traffic jam.,REPORT_DELAY,60,,,,,0,
+LM139,Running 30 minutes behind because of fuel stop took long.,REPORT_DELAY,30,,,,,0,
+LM140,Can I get a dock tonight or should I park?,ASK_OPTIONS,,,,,,0,
+LM141,"Brake issue, mechanic coming. Will reach by 12:10 now, sorry.",REPORT_DELAY,,12:10,,,,0,
+LM142,Running 90 minutes behind because of rain and waterlogging.,REPORT_DELAY,90,,,,,0,
+LM143,I am already at the gate. Can I get a dock now instead of waiting for 9?,EARLY_ARRIVAL,,,,,,0,
+LM144,Traffic after Shahpura. Reaching around 11:20. Any slot after 12?,REPORT_DELAY,,11:20,,,,0,duplicate of an earlier message if same thread within 2 minutes
+LM145,Do not book 7:30. Check tomorrow morning.,CHANGE_MIND,,,,,,0,
+LM146,What are the next two slots after 6 PM?,ASK_OPTIONS,,,,,,0,
+LM147,Has the warehouse confirmed my new slot?,ASK_STATUS,,,,,,0,
+LM148,Can't make the slot.,REPORT_DELAY,,,,,,1,no new ETA

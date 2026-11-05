@@ -1,0 +1,22 @@
+# Core (all tracks)
+pandas>=2.1
+numpy>=1.26
+python-dotenv>=1.0
+pytest>=8.0
+jupyter>=1.0
+matplotlib>=3.8
+
+# ML track and Hybrid track
+scikit-learn>=1.4
+xgboost>=2.0
+
+# Agentic track and Hybrid track
+langchain>=0.3
+langchain-openai>=0.2
+langgraph>=0.2
+pydantic>=2.6
+
+# Optional: demo front end and service
+streamlit>=1.35
+fastapi>=0.110
+uvicorn>=0.29
