@@ -1,11 +1,9 @@
-"""FastAPI stub for the predictor. Run: uvicorn predict_service_stub:app --reload --port 8010
+"""FastAPI stub for the unloading-duration predictor."""
 
-Fill `predict` with your trained model. Keep the request and response shapes exactly as in integration_contract.md.
-"""
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-app = FastAPI(title="SkyWays predictor")
+app = FastAPI(title="SkyWays unloading-duration predictor")
 
 
 class PredictRequest(BaseModel):
@@ -25,13 +23,16 @@ class PredictResponse(BaseModel):
     model_version: str
     predicted_unload_min: int
     unload_p90_min: int
-    late_arrival_probability: float
     explanation: str
 
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest) -> PredictResponse:
-    # TODO: load your model once at startup (not per request), build the feature row, predict.
-    # Until then this returns the facility default so the agent can be developed in parallel.
-    return PredictResponse(model_version="stub-0", predicted_unload_min=60, unload_p90_min=75,
-                           late_arrival_probability=0.3, explanation="stub: facility default")
+    # TODO: Load the trained model once at startup.
+    # Until then, return a placeholder estimate.
+    return PredictResponse(
+        model_version="stub-0",
+        predicted_unload_min=60,
+        unload_p90_min=75,
+        explanation="Stub prediction: facility default estimate."
+    )

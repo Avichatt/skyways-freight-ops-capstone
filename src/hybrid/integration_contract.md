@@ -1,8 +1,9 @@
-# Integration contract: predictor to agent
+# Integration contract: unloading predictor to agent
 
-The agent calls the predictor as a tool. The predictor never sees the conversation; it sees structured facts only.
+The agent calls the unloading-duration predictor as a tool. The predictor never sees the conversation; it receives structured shipment and candidate-slot information only.
 
 ## Request (agent to predictor)
+
 ```json
 {
   "shipment_id": "SHP1006",
@@ -19,21 +20,29 @@ The agent calls the predictor as a tool. The predictor never sees the conversati
 ```
 
 ## Response (predictor to agent)
+
 ```json
 {
   "model_version": "unload-xgb-2026-08-04",
   "predicted_unload_min": 61,
   "unload_p90_min": 78,
-  "late_arrival_probability": 0.34,
-  "explanation": "28 pallets on a standard dock in the afternoon; carrier CAR003 runs late on 4 of 10 trips"
+  "explanation": "28 pallets on a standard dock in the afternoon; the predicted unloading duration is 61 minutes, with a conservative p90 estimate of 78 minutes."
 }
 ```
 
 ## Rules both sides keep
+
 | Rule | Who enforces it |
 |---|---|
 | The agent uses `unload_p90_min`, not the point estimate, to test whether a slot fits | Agent (`find_feasible_slots`) |
-| A `late_arrival_probability` above 0.5 shortens the hold to five minutes and adds a warning line to the reply | Agent (`hold`) |
-| The predictor returns within 300 ms or the agent falls back to `expected_unload_min` from the shipment and says so in the trace | Predictor and agent |
-| Every response carries `model_version`; the trace records it | Predictor |
-| The predictor is never asked to choose a slot | Both |
+| The predictor returns within 300 ms; otherwise, the agent falls back to the shipment's `expected_unload_min` and records the fallback in the trace | Predictor and agent |
+| Every successful prediction carries `model_version`; the trace records it | Predictor |
+| The predictor estimates unloading duration only; it never chooses, holds, or confirms a slot | Both |
+| The database remains the source of truth for slot availability and appointment status | Agent tools and database |
+
+## Scope boundaries
+
+- This contract supports one ML capability: unloading-duration prediction.
+- Late-arrival probability prediction is outside the current capstone scope.
+- Slot feasibility is determined using database constraints, arrival information, dock compatibility, and the conservative unloading estimate.
+- The agent must not claim that a slot is confirmed merely because it was predicted to fit.
