@@ -68,3 +68,4 @@ def test_understand_node_on_20_messages(idx):
     assert "extraction" in result
     assert "workflow_stage" in result
     assert result["workflow_stage"] in ["CLARIFICATION", "OPTION_SEARCH", "BOOKING", "ESCALATION"]
+

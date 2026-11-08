@@ -54,23 +54,18 @@ def understand(state: ConversationState) -> ConversationState:
 
     # If single active shipment, bind it
     shipment_id = state.get("shipment_id")
-    if not shipment_id and len(active_shipments) == 1:
+    if not shipment_id and not ctx.get("needs_disambiguation") and len(active_shipments) == 1:
         shipment_id = active_shipments[0]["shipment_id"]
         state["shipment_id"] = shipment_id
         state["facility_id"] = active_shipments[0]["destination_facility_id"]
-    elif not shipment_id:
-        # Check chat_threads for this thread_id or driver's open thread
-        thread_id = state.get("thread_id")
+    elif not shipment_id and state.get("thread_id"):
+        # Only check thread_id if explicitly passed in state
         try:
             con = tools._con()
-            if thread_id:
-                t_row = con.execute("SELECT shipment_id FROM chat_threads WHERE thread_id = ?", (thread_id,)).fetchone()
-            else:
-                t_row = con.execute("SELECT shipment_id FROM chat_threads WHERE driver_id = ? AND thread_status = 'OPEN' ORDER BY opened_at DESC LIMIT 1", (driver_id,)).fetchone()
+            t_row = con.execute("SELECT shipment_id FROM chat_threads WHERE thread_id = ?", (state["thread_id"],)).fetchone()
             if t_row and t_row["shipment_id"]:
                 shipment_id = t_row["shipment_id"]
                 state["shipment_id"] = shipment_id
-                # find facility
                 for s in active_shipments:
                     if s["shipment_id"] == shipment_id:
                         state["facility_id"] = s["destination_facility_id"]
@@ -108,7 +103,7 @@ def understand(state: ConversationState) -> ConversationState:
 
     # Determine declared_eta_ts
     revised_eta = extraction.get("revised_eta_text")
-    if revised_eta:
+    if revised_eta and not extraction.get("needs_clarification"):
         base_date = "2026-08-04"
         if latest_eta_ctx and latest_eta_ctx.get("effective_eta_ts"):
             base_date = latest_eta_ctx["effective_eta_ts"][:10]
@@ -119,28 +114,18 @@ def understand(state: ConversationState) -> ConversationState:
             state["declared_eta_ts"] = f"{base_date}T{hh:02d}:{mm:02d}:00+05:30"
         else:
             state["declared_eta_ts"] = revised_eta
-    elif extraction.get("delay_minutes") is not None and latest_eta_ctx.get("effective_eta_ts"):
-        # "late by one hour" -> compute ETA from latest known ETA + delay
-        try:
-            eff_str = latest_eta_ctx["effective_eta_ts"]
-            dt = datetime.fromisoformat(eff_str)
-            new_dt = dt + timedelta(minutes=extraction["delay_minutes"])
-            state["declared_eta_ts"] = new_dt.isoformat()
-            state["eta_confidence"] = "MEDIUM"
-        except Exception:
-            pass
 
     # Build missing_information
     missing = []
-    if not state.get("shipment_id"):
+    if ctx.get("needs_disambiguation") and not state.get("shipment_id"):
         missing.append("shipment_id")
         state["clarification_reason"] = "which shipment (driver has multiple active loads)"
+    elif extraction.get("needs_clarification"):
+        missing.append("declared_eta_ts")
+        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
     elif not state.get("declared_eta_ts") and state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS"):
         missing.append("declared_eta_ts")
-        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
-    elif extraction.get("needs_clarification") and not state.get("declared_eta_ts"):
-        missing.append("declared_eta_ts")
-        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
+        state["clarification_reason"] = "revised arrival time"
 
     state["missing_information"] = missing
     state["workflow_stage"] = "CLARIFICATION" if missing else "OPTION_SEARCH"
