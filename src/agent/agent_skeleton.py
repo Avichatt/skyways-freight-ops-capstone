@@ -10,11 +10,21 @@ Run:  python 04_build/agentic/agent_skeleton.py
 It opens a small console loop so you can talk to the agent as a driver.
 """
 import os
+import sys
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 
+# Ensure imports resolve whether run from repo root or src/agent
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.dirname(AGENT_DIR)
+for p in [AGENT_DIR, SRC_DIR]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 from state import ConversationState
+from extractor import extract_driver_message
 import tools
 
 load_dotenv()
@@ -25,7 +35,7 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+PROMPT_DIR = os.path.join(SRC_DIR, "prompts")
 
 def _prompt(name: str) -> str:
     with open(os.path.join(PROMPT_DIR, name), encoding="utf-8") as f:
@@ -33,20 +43,125 @@ def _prompt(name: str) -> str:
 
 
 def understand(state: ConversationState) -> ConversationState:
-    """Extract intent, declared ETA, confidence and constraints from the last message.
+    """Extract intent, declared ETA, confidence and constraints from the last message."""
+    driver_id = state.get("driver_id", "")
+    last_msg = state.get("last_message", "")
 
-    TODO: call the LLM with prompts/extraction_prompt.md and the driver's message, parse the JSON reply,
-    then load context with tools.get_driver_context. Fill state['missing_information'] with the names of
-    the things you still need (for example "shipment_id", "declared_eta_ts").
-    Trap: "late by one hour" is a delay, not an ETA. Compute the ETA from the latest known ETA plus the delay,
-    and set eta_confidence to MEDIUM at best.
-    """
-    raise NotImplementedError
+    # Load driver context
+    ctx = tools.get_driver_context(driver_id)
+    state["driver_context"] = ctx
+    active_shipments = ctx.get("active_shipments", [])
+
+    # If single active shipment, bind it
+    shipment_id = state.get("shipment_id")
+    if not shipment_id and len(active_shipments) == 1:
+        shipment_id = active_shipments[0]["shipment_id"]
+        state["shipment_id"] = shipment_id
+        state["facility_id"] = active_shipments[0]["destination_facility_id"]
+    elif not shipment_id:
+        # Check chat_threads for this thread_id or driver's open thread
+        thread_id = state.get("thread_id")
+        try:
+            con = tools._con()
+            if thread_id:
+                t_row = con.execute("SELECT shipment_id FROM chat_threads WHERE thread_id = ?", (thread_id,)).fetchone()
+            else:
+                t_row = con.execute("SELECT shipment_id FROM chat_threads WHERE driver_id = ? AND thread_status = 'OPEN' ORDER BY opened_at DESC LIMIT 1", (driver_id,)).fetchone()
+            if t_row and t_row["shipment_id"]:
+                shipment_id = t_row["shipment_id"]
+                state["shipment_id"] = shipment_id
+                # find facility
+                for s in active_shipments:
+                    if s["shipment_id"] == shipment_id:
+                        state["facility_id"] = s["destination_facility_id"]
+                        break
+        except Exception:
+            pass
+
+    # Latest ETA context
+    latest_eta_ctx = {}
+    if shipment_id:
+        latest_eta_ctx = tools.get_latest_eta(shipment_id)
+        state["latest_eta_context"] = latest_eta_ctx
+
+    # Extract structured fields via LLM
+    extraction = extract_driver_message(driver_id, last_msg, active_shipments, latest_eta_ctx)
+    state["extraction"] = extraction
+    state["intent"] = extraction.get("intent", "OTHER")
+    state["delay_minutes"] = extraction.get("delay_minutes")
+    state["revised_eta_text"] = extraction.get("revised_eta_text")
+    state["eta_confidence"] = extraction.get("eta_confidence", "MEDIUM")
+    state["equipment_requirement"] = extraction.get("equipment_requirement")
+    state["latest_leave_ts"] = extraction.get("latest_time_constraint")
+
+    # Match shipment_reference if named in message
+    ship_ref = extraction.get("shipment_reference")
+    if ship_ref and not shipment_id:
+        for s in active_shipments:
+            if ship_ref.lower() in s["shipment_id"].lower() or (s.get("product_category") and ship_ref.lower() in s["product_category"].lower()):
+                state["shipment_id"] = s["shipment_id"]
+                state["facility_id"] = s["destination_facility_id"]
+                shipment_id = s["shipment_id"]
+                latest_eta_ctx = tools.get_latest_eta(shipment_id)
+                state["latest_eta_context"] = latest_eta_ctx
+                break
+
+    # Determine declared_eta_ts
+    revised_eta = extraction.get("revised_eta_text")
+    if revised_eta:
+        base_date = "2026-08-04"
+        if latest_eta_ctx and latest_eta_ctx.get("effective_eta_ts"):
+            base_date = latest_eta_ctx["effective_eta_ts"][:10]
+        import re
+        time_match = re.search(r"(\d{1,2}):(\d{2})", revised_eta)
+        if time_match:
+            hh, mm = int(time_match.group(1)), int(time_match.group(2))
+            state["declared_eta_ts"] = f"{base_date}T{hh:02d}:{mm:02d}:00+05:30"
+        else:
+            state["declared_eta_ts"] = revised_eta
+    elif extraction.get("delay_minutes") is not None and latest_eta_ctx.get("effective_eta_ts"):
+        # "late by one hour" -> compute ETA from latest known ETA + delay
+        try:
+            eff_str = latest_eta_ctx["effective_eta_ts"]
+            dt = datetime.fromisoformat(eff_str)
+            new_dt = dt + timedelta(minutes=extraction["delay_minutes"])
+            state["declared_eta_ts"] = new_dt.isoformat()
+            state["eta_confidence"] = "MEDIUM"
+        except Exception:
+            pass
+
+    # Build missing_information
+    missing = []
+    if not state.get("shipment_id"):
+        missing.append("shipment_id")
+        state["clarification_reason"] = "which shipment (driver has multiple active loads)"
+    elif not state.get("declared_eta_ts") and state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS"):
+        missing.append("declared_eta_ts")
+        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
+    elif extraction.get("needs_clarification") and not state.get("declared_eta_ts"):
+        missing.append("declared_eta_ts")
+        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
+
+    state["missing_information"] = missing
+    state["workflow_stage"] = "CLARIFICATION" if missing else "OPTION_SEARCH"
+    return state
 
 
 def clarify(state: ConversationState) -> ConversationState:
-    """Ask exactly one question, for the most blocking missing item. TODO: use prompts/clarify_prompt.md."""
-    raise NotImplementedError
+    """Ask exactly one question, for the most blocking missing item."""
+    reason = state.get("clarification_reason", "unclear message details")
+    msg = state.get("last_message", "")
+
+    prompt_tpl = _prompt("clarify_prompt.md")
+    prompt = prompt_tpl.replace("{clarification_reason}", reason).replace("{message}", msg)
+
+    response = llm.invoke(prompt)
+    reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+
+    state["reply_to_driver"] = reply_text
+    state["commitment_status"] = "NONE"
+    state["clarification_count"] = state.get("clarification_count", 0) + 1
+    return state
 
 
 def options(state: ConversationState) -> ConversationState:

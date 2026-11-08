@@ -1,46 +1,77 @@
-"""Conversation state for the SkyWays dock-coordination agent.
+from typing import TypedDict, Optional, Literal, Any, Union
 
-The state is the only thing that moves between graph nodes. Keep it small and typed.
-Fields marked TODO are yours to fill once you know what your clarification and hold logic need.
-"""
-from typing import Literal, Optional, TypedDict
+Intent = Literal[
+    "REPORT_DELAY",
+    "ASK_OPTIONS",
+    "ADD_CONSTRAINT",
+    "CHOOSE_OPTION",
+    "CHANGE_MIND",
+    "ASK_STATUS",
+    "EARLY_ARRIVAL",
+    "CANCEL",
+    "OUT_OF_SCOPE",
+    "OTHER",
+]
 
-
-class SlotOption(TypedDict):
-    slot_id: str
-    dock_code: str
-    slot_start_ts: str
-    slot_end_ts: str
-    fits_unload: bool          # unload duration fits inside the window
-    reason_shown: str          # one sentence the driver sees
-
+ExtractionResult = dict[str, Any]
+SlotOption = dict[str, Any]
 
 class ConversationState(TypedDict, total=False):
-    # Identity and context
+
+    # Identity
     thread_id: str
     driver_id: str
-    shipment_id: Optional[str]           # None until disambiguated
+    shipment_id: Optional[str]
     facility_id: Optional[str]
 
-    # What the driver said and what we understood
-    last_message: str
-    intent: Literal["REPORT_DELAY", "ASK_OPTIONS", "ADD_CONSTRAINT", "CHOOSE_OPTION",
-                    "CHANGE_MIND", "ASK_STATUS", "EARLY_ARRIVAL", "CANCEL", "OUT_OF_SCOPE", "OTHER"]
-    declared_eta_ts: Optional[str]
-    eta_confidence: Literal["HIGH", "MEDIUM", "LOW"]
-    latest_leave_ts: Optional[str]       # driver's own constraint, if any
-    missing_information: list[str]       # what must be clarified before options can be shown
+    # Context
+    driver_context: dict
+    latest_eta_context: dict
 
-    # Options and commitment
+    # Driver message
+    last_message: str
+    extraction: ExtractionResult
+
+    intent: Intent
+    delay_minutes: Optional[int]
+    declared_eta_ts: Optional[str]
+    revised_eta_text: Optional[str]
+    eta_confidence: Literal["HIGH", "MEDIUM", "LOW"]
+
+    equipment_requirement: Optional[
+        Literal["STANDARD", "REEFER", "HEAVY"]
+    ]
+    latest_leave_ts: Optional[str]
+
+    missing_information: list[str]
+    clarification_reason: str
+    clarification_count: int
+
+    # Scheduling
     options_shown: list[SlotOption]
     held_slot_id: Optional[str]
     hold_expires_at: Optional[str]
+
     appointment_id: Optional[str]
-    commitment_status: Literal["NONE", "SHOWN", "HELD", "REQUESTED", "CONFIRMED", "ESCALATED"]
+
+    commitment_status: Literal[
+        "NONE",
+        "SHOWN",
+        "HELD",
+        "REQUESTED",
+        "CONFIRMED",
+        "ESCALATED"
+    ]
+
+    workflow_stage: Literal[
+        "EXTRACTION",
+        "CLARIFICATION",
+        "OPTION_SEARCH",
+        "BOOKING",
+        "CONFIRMATION",
+        "ESCALATION"
+    ]
 
     # Output
     reply_to_driver: str
     escalation_reason: Optional[str]
-
-    # TODO: add anything your clarification loop needs, for example a turn counter so the agent
-    # stops asking after two unanswered clarifications and escalates instead.
