@@ -121,6 +121,14 @@ def main():
     else:
         print("Result: Random Forest does not beat the baseline yet.")
 
+    # Save model artifact and metadata
+    import joblib
+    import os
+    model_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(model_dir, "unload_predictor.joblib")
+    joblib.dump(model, model_path)
+    print(f"Saved trained model to {model_path}")
+
 
 if __name__ == "__main__":
     main()

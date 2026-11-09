@@ -87,7 +87,7 @@ def understand(state: ConversationState) -> ConversationState:
     state["revised_eta_text"] = extraction.get("revised_eta_text")
     state["eta_confidence"] = extraction.get("eta_confidence", "MEDIUM")
     state["equipment_requirement"] = extraction.get("equipment_requirement")
-    state["latest_leave_ts"] = extraction.get("latest_time_constraint")
+    state["latest_leave_ts"] = None
 
     # Match shipment_reference if named in message
     ship_ref = extraction.get("shipment_reference")
@@ -103,29 +103,47 @@ def understand(state: ConversationState) -> ConversationState:
 
     # Determine declared_eta_ts
     revised_eta = extraction.get("revised_eta_text")
-    if revised_eta and not extraction.get("needs_clarification"):
+    if revised_eta:
         base_date = "2026-08-04"
         if latest_eta_ctx and latest_eta_ctx.get("effective_eta_ts"):
             base_date = latest_eta_ctx["effective_eta_ts"][:10]
         import re
-        time_match = re.search(r"(\d{1,2}):(\d{2})", revised_eta)
+        time_match = re.search(r"(\d{1,2})(?::(\d{2}))?", revised_eta)
         if time_match:
-            hh, mm = int(time_match.group(1)), int(time_match.group(2))
+            hh, mm = int(time_match.group(1)), int(time_match.group(2)) if time_match.group(2) else 0
             state["declared_eta_ts"] = f"{base_date}T{hh:02d}:{mm:02d}:00+05:30"
         else:
             state["declared_eta_ts"] = revised_eta
+
+    # Handle constraints: "after 12" is earliest start; "before 1:30" is latest leave
+    constraint = extraction.get("latest_time_constraint")
+    if constraint:
+        c_lower = constraint.lower()
+        if any(w in c_lower for w in ["after", "post", "from"]):
+            import re
+            m = re.search(r"(\d{1,2})(?::(\d{2}))?", constraint)
+            if m:
+                hh = int(m.group(1))
+                mm = int(m.group(2)) if m.group(2) else 0
+                if hh < 6:
+                    hh += 12
+                base_date = "2026-08-04"
+                if latest_eta_ctx and latest_eta_ctx.get("effective_eta_ts"):
+                    base_date = latest_eta_ctx["effective_eta_ts"][:10]
+                not_before_from_constraint = f"{base_date}T{hh:02d}:{mm:02d}:00+05:30"
+                if not state.get("declared_eta_ts") or not_before_from_constraint > state["declared_eta_ts"]:
+                    state["declared_eta_ts"] = not_before_from_constraint
+        else:
+            state["latest_leave_ts"] = constraint
 
     # Build missing_information
     missing = []
     if ctx.get("needs_disambiguation") and not state.get("shipment_id"):
         missing.append("shipment_id")
         state["clarification_reason"] = "which shipment (driver has multiple active loads)"
-    elif extraction.get("needs_clarification"):
+    elif not state.get("declared_eta_ts") and (extraction.get("needs_clarification") or state.get("delay_minutes") is not None or state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS")):
         missing.append("declared_eta_ts")
         state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
-    elif not state.get("declared_eta_ts") and state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS"):
-        missing.append("declared_eta_ts")
-        state["clarification_reason"] = "revised arrival time"
 
     state["missing_information"] = missing
     state["workflow_stage"] = "CLARIFICATION" if missing else "OPTION_SEARCH"
@@ -151,7 +169,35 @@ def clarify(state: ConversationState) -> ConversationState:
 
 def options(state: ConversationState) -> ConversationState:
     """Call tools.find_feasible_slots and write state['options_shown']. Mark commitment_status = 'SHOWN'."""
-    raise NotImplementedError
+    shipment_id = state.get("shipment_id")
+    not_before = state.get("declared_eta_ts") or state.get("revised_eta_text") or "12:00"
+    latest_leave = state.get("latest_leave_ts")
+
+    if not shipment_id:
+        driver_ctx = state.get("driver_context", {})
+        active = driver_ctx.get("active_shipments", [])
+        if len(active) == 1:
+            shipment_id = active[0]["shipment_id"]
+            state["shipment_id"] = shipment_id
+            state["facility_id"] = active[0]["destination_facility_id"]
+
+    slots = tools.find_feasible_slots(
+        shipment_id=shipment_id,
+        not_before_ts=not_before,
+        latest_leave_ts=latest_leave,
+        limit=3
+    )
+
+    state["options_shown"] = slots
+    if slots:
+        state["commitment_status"] = "SHOWN"
+        state["workflow_stage"] = "OPTION_SEARCH"
+    else:
+        state["commitment_status"] = "ESCALATED"
+        state["escalation_reason"] = "No feasible dock slots available meeting requirements"
+        state["workflow_stage"] = "ESCALATION"
+
+    return state
 
 
 def hold(state: ConversationState) -> ConversationState:
@@ -165,13 +211,49 @@ def request(state: ConversationState) -> ConversationState:
 
 
 def escalate(state: ConversationState) -> ConversationState:
-    raise NotImplementedError
+    """Escalate to operations when no slot is feasible or request is out of scope."""
+    state["commitment_status"] = "ESCALATED"
+    if not state.get("escalation_reason"):
+        state["escalation_reason"] = "Assistance requested or out of scope request"
+    state["workflow_stage"] = "ESCALATION"
+    return state
 
 
 def reply(state: ConversationState) -> ConversationState:
-    """Compose the driver-facing message with prompts/explain_prompt.md. It must state the commitment status
-    in plain words (shown / held until hh:mm / requested, waiting for warehouse / confirmed / escalated)."""
-    raise NotImplementedError
+    """Compose the driver-facing message with prompts/explain_prompt.md."""
+    status = state.get("commitment_status", "NONE")
+    facility = state.get("facility_id", "SkyWays Distribution Centre")
+
+    options_list = state.get("options_shown", [])
+    if options_list:
+        opt_lines = []
+        for i, opt in enumerate(options_list, 1):
+            start_hhmm = opt["slot_start_ts"][11:16]
+            end_hhmm = opt["slot_end_ts"][11:16]
+            opt_lines.append(f"Option {i}: Dock {opt['dock_code']}, {start_hhmm} to {end_hhmm}")
+        opts_str = "\n".join(opt_lines)
+    else:
+        opts_str = "None available"
+
+    held_str = ""
+    if state.get("held_slot_id"):
+        held_str = f"Slot {state['held_slot_id']} held until {state.get('hold_expires_at', '10 minutes')}"
+
+    prompt_tpl = _prompt("explain_prompt.md")
+    prompt = (
+        prompt_tpl
+        .replace("{commitment_status}", status)
+        .replace("{facility_name}", str(facility))
+        .replace("{options}", opts_str)
+        .replace("{held}", held_str or "None")
+        .replace("{escalation_reason}", state.get("escalation_reason") or "None")
+        .replace("{latest_leave}", state.get("latest_leave_ts") or "None")
+    )
+
+    response = llm.invoke(prompt)
+    reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+    state["reply_to_driver"] = reply_text
+    return state
 
 
 def route_after_understand(state: ConversationState) -> str:

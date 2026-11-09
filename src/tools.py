@@ -191,6 +191,27 @@ def get_latest_eta(shipment_id: str) -> dict:
     )
 
 
+def _parse_iso_or_time(time_str: str, base_date: str = "2026-08-04") -> datetime:
+    """Robust parser for ISO timestamps or driver-stated times."""
+    import re
+    s = str(time_str).strip()
+    try:
+        if "T" in s and len(s) >= 19:
+            return datetime.fromisoformat(s)
+    except Exception:
+        pass
+
+    match = re.search(r"(\d{1,2})(?::(\d{2}))?", s)
+    if match:
+        hh = int(match.group(1))
+        mm = int(match.group(2)) if match.group(2) else 0
+        if hh < 6:  # e.g., 1:30 PM is 13:30
+            hh += 12
+        return datetime.fromisoformat(f"{base_date}T{hh:02d}:{mm:02d}:00+05:30")
+
+    return datetime.fromisoformat(f"{base_date}T00:00:00+05:30")
+
+
 def find_feasible_slots(
     shipment_id: str,
     not_before_ts: str,
@@ -201,25 +222,131 @@ def find_feasible_slots(
     Return up to `limit` slots the truck can actually use.
 
     A slot is feasible only when ALL of these hold:
-
     1. slot_start_ts >= not_before_ts
-    2. dock type matches shipment.required_dock_type
+    2. dock type matches shipment.required_dock_type (and weight constraints)
     3. availability_status == 'AVAILABLE'
-    4. required unload duration fits in slot window
-    5. facility LAST_NEW_START_TIME rule respected
-    6. latest_leave_ts respected if given
-
-    TODO:
-        Implement with SQL + Python checks.
-
-    Hint:
-        Start from v_slot_availability joined to shipments.
-
-    Trap:
-        Do not filter on slot_status alone.
+    4. required unload duration fits in slot window (tested with unload_p90_min)
+    5. facility LAST_NEW_START_TIME rule respected (starts before cutoff, default 21:00)
+    6. latest_leave_ts respected if given (slot ends before leave time)
     """
+    con = _con()
+    ship_row = con.execute(
+        "SELECT * FROM shipments WHERE shipment_id = ?",
+        (shipment_id,)
+    ).fetchone()
 
-    raise NotImplementedError
+    if not ship_row:
+        return []
+
+    shipment = dict(ship_row)
+    facility_id = shipment["destination_facility_id"]
+    req_dock = shipment["required_dock_type"]
+    load_weight = shipment["load_weight_kg"]
+    expected_unload = shipment["expected_unload_min"]
+
+    # Base date from shipment or default
+    base_date = "2026-08-04"
+    if shipment.get("latest_eta_ts"):
+        base_date = shipment["latest_eta_ts"][:10]
+
+    not_before_dt = _parse_iso_or_time(not_before_ts, base_date=base_date)
+
+    # Facility rules
+    rules = con.execute(
+        "SELECT rule_type, rule_value FROM facility_rules WHERE facility_id = ? AND active_flag = 1",
+        (facility_id,)
+    ).fetchall()
+    rules_dict = {r["rule_type"]: r["rule_value"] for r in rules}
+    last_new_start_str = rules_dict.get("LAST_NEW_START_TIME", "21:00")
+    last_start_hour, last_start_min = [int(x) for x in last_new_start_str.split(":")[:2]]
+
+    leave_dt = None
+    if latest_leave_ts:
+        leave_dt = _parse_iso_or_time(latest_leave_ts, base_date=base_date)
+
+    # Query all AVAILABLE slots for the facility ordered by time then dock
+    slots = con.execute(
+        """
+        SELECT
+            slot_id,
+            facility_id,
+            dock_code,
+            dock_type,
+            supports_refrigerated,
+            max_vehicle_weight_kg,
+            slot_start_ts,
+            slot_end_ts,
+            availability_status
+        FROM v_slot_availability
+        WHERE facility_id = ?
+          AND availability_status = 'AVAILABLE'
+        ORDER BY slot_start_ts, dock_code
+        """,
+        (facility_id,)
+    ).fetchall()
+
+    feasible_options = []
+
+    for s_row in slots:
+        cand = dict(s_row)
+        slot_start_dt = datetime.fromisoformat(cand["slot_start_ts"])
+        slot_end_dt = datetime.fromisoformat(cand["slot_end_ts"])
+
+        # 1. slot_start_ts >= not_before_ts
+        if slot_start_dt < not_before_dt:
+            continue
+
+        # 2. Dock type and vehicle weight compatibility
+        if req_dock == "REEFER":
+            if cand["dock_type"] != "REEFER" and cand.get("supports_refrigerated") != 1:
+                continue
+        elif req_dock == "HEAVY":
+            if cand["dock_type"] != "HEAVY":
+                continue
+            if cand.get("max_vehicle_weight_kg") and load_weight > cand["max_vehicle_weight_kg"]:
+                continue
+        else:  # STANDARD
+            if load_weight > 25000:
+                if cand["dock_type"] != "HEAVY":
+                    continue
+            elif cand["dock_type"] != "STANDARD":
+                continue
+
+        # 3. availability_status == 'AVAILABLE' (filtered by query and double-checked)
+        if cand["availability_status"] != "AVAILABLE":
+            continue
+
+        # 4. Required unload duration fits in slot window
+        window_min = (slot_end_dt - slot_start_dt).total_seconds() / 60
+        pred = predict_unload_duration(shipment, cand)
+        unload_p90 = pred.get("unload_p90_min", expected_unload)
+        if unload_p90 > window_min:
+            continue
+
+        # 5. LAST_NEW_START_TIME rule (no new operation should start after cutoff)
+        cutoff_dt = slot_start_dt.replace(hour=last_start_hour, minute=last_start_min, second=0)
+        if slot_start_dt > cutoff_dt:
+            continue
+
+        # 6. latest_leave_ts respected if given
+        if leave_dt and slot_end_dt > leave_dt:
+            continue
+
+        feasible_options.append({
+            "slot_id": cand["slot_id"],
+            "dock_code": cand["dock_code"],
+            "dock_type": cand["dock_type"],
+            "slot_start_ts": cand["slot_start_ts"],
+            "slot_end_ts": cand["slot_end_ts"],
+            "fits_unload": True,
+            "reason_shown": f"Available {cand['dock_type']} dock {cand['dock_code']} (p90 unload: {unload_p90}m)",
+            "unload_p90_min": unload_p90,
+        })
+
+        if len(feasible_options) >= limit:
+            break
+
+    return feasible_options
 
 
 def hold_slot(
