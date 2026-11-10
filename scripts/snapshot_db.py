@@ -5,7 +5,7 @@ python 04_build/scripts/snapshot_db.py restore -> copies it back
 Run `save` before you rehearse, `restore` after every rehearsal, so the demo always starts from the same state.
 """
 import os, shutil, sys
-ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+ROOT = os.path.join(os.path.dirname(__file__), "..", "data")
 LIVE, SNAP = os.path.join(ROOT, "skyways_freight_operations.db"), os.path.join(ROOT, "demo_snapshot.db")
 cmd = sys.argv[1] if len(sys.argv) > 1 else ""
 if cmd == "save":

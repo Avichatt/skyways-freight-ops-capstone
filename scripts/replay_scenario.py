@@ -6,7 +6,7 @@ Use it in the demo to prove the system cannot double-book.
 """
 import os, shutil, sqlite3, sys, tempfile, threading
 
-SRC = os.path.join(os.path.dirname(__file__), "..", "..", "data", "skyways_freight_operations.db")
+SRC = os.path.join(os.path.dirname(__file__), "..", "data", "skyways_freight_operations.db")
 CONTENDERS = ["SHP1012", "SHP1013", "SHP1014", "SHP1006"]   # delayed trucks competing for standard docks
 
 
@@ -40,9 +40,13 @@ def main():
     con = sqlite3.connect(path)
     rows = con.execute("select appointment_id, shipment_id, appointment_status from appointments where slot_id=?", (slot[0],)).fetchall()
     print("Appointments on the slot now:", rows)
+    con.close()
     held = [r for r in results if r[1] == "HELD"]
     print("RESULT:", "PASS, exactly one hold" if len(held) == 1 else "FAIL")
-    shutil.rmtree(tmp)
+    try:
+        shutil.rmtree(tmp)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

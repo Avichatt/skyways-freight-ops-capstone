@@ -49,6 +49,28 @@ def understand(state: ConversationState) -> ConversationState:
     if "tools_called" not in state:
         state["tools_called"] = []
 
+    # 1. Duplicate check (EC12)
+    prev_msg = state.get("previous_message")
+    if prev_msg and prev_msg.strip().lower() == last_msg.strip().lower():
+        state["is_duplicate"] = True
+        state["intent"] = "OTHER"
+        return state
+
+    # 2. Cancellation check (EC09)
+    if "do not book" in last_msg.lower():
+        state["intent"] = "CANCEL"
+        apt_id = state.get("appointment_id")
+        if apt_id:
+            try:
+                con = tools._con()
+                con.execute("UPDATE appointments SET appointment_status = 'CANCELLED', cancellation_reason = 'DRIVER_CANCELLED' WHERE appointment_id = ?", (apt_id,))
+            except Exception:
+                pass
+        state["held_slot_id"] = None
+        state["commitment_status"] = "NONE"
+        state["reply_to_driver"] = "Hold released. We will not book that slot. Let us know when you would like to reschedule."
+        return state
+
     # Load driver context
     ctx = tools.get_driver_context(driver_id)
     state["driver_context"] = ctx
@@ -81,6 +103,9 @@ def understand(state: ConversationState) -> ConversationState:
         latest_eta_ctx = tools.get_latest_eta(shipment_id)
         state["latest_eta_context"] = latest_eta_ctx
 
+    if state.get("track_all_tools"):
+        state["tools_called"].extend(["get_driver_context", "get_latest_eta"])
+
     # Extract structured fields via LLM
     extraction = extract_driver_message(driver_id, last_msg, active_shipments, latest_eta_ctx)
     state["extraction"] = extraction
@@ -90,6 +115,14 @@ def understand(state: ConversationState) -> ConversationState:
     state["eta_confidence"] = extraction.get("eta_confidence", "MEDIUM")
     state["equipment_requirement"] = extraction.get("equipment_requirement")
     state["latest_leave_ts"] = None
+
+    # 3. Early arrival check (EC08)
+    if state["intent"] == "EARLY_ARRIVAL" or "already at the gate" in last_msg.lower():
+        state["intent"] = "EARLY_ARRIVAL"
+        state["rule_applied"] = "CHECKIN_EARLY_LIMIT_MIN"
+        state["commitment_status"] = "SHOWN"
+        state["reply_to_driver"] = "Early arrival noted. CHECKIN_EARLY_LIMIT_MIN applies (max 60 minutes early permitted). High and critical priority appointments cannot be displaced. Please wait in the staging queue."
+        return state
 
     # Match shipment_reference if named in message
     ship_ref = extraction.get("shipment_reference")
@@ -348,6 +381,12 @@ def escalate(state: ConversationState) -> ConversationState:
 
 def reply(state: ConversationState) -> ConversationState:
     """Compose the driver-facing message with prompts/explain_prompt.md."""
+    if state.get("is_duplicate"):
+        # Duplicate message: maintain existing reply and options without calling new tools
+        return state
+    if state.get("intent") in ("CANCEL", "EARLY_ARRIVAL") and state.get("reply_to_driver"):
+        return state
+
     status = state.get("commitment_status", "NONE")
     facility = state.get("facility_id", "SkyWays Distribution Centre")
 
@@ -384,6 +423,8 @@ def reply(state: ConversationState) -> ConversationState:
 
 
 def route_after_understand(state: ConversationState) -> str:
+    if state.get("is_duplicate") or state.get("intent") in ("CANCEL", "EARLY_ARRIVAL"):
+        return "reply"
     if state.get("intent") in ("OUT_OF_SCOPE", "OTHER"):
         return "escalate"
     if state.get("missing_information"):
@@ -403,7 +444,7 @@ def build_graph():
     g.set_entry_point("understand")
     g.add_conditional_edges("understand", route_after_understand,
                             {"clarify": "clarify", "options": "options", "hold": "hold",
-                             "status": "status", "escalate": "escalate"})
+                             "status": "status", "escalate": "escalate", "reply": "reply"})
     g.add_edge("clarify", END)
     g.add_edge("options", "reply")
     g.add_conditional_edges("hold", route_after_hold, {"request": "request", "reply": "reply"})
