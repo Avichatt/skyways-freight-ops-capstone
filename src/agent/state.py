@@ -75,3 +75,4 @@ class ConversationState(TypedDict, total=False):
     # Output
     reply_to_driver: str
     escalation_reason: Optional[str]
+    tools_called: list[str]

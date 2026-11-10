@@ -46,6 +46,8 @@ def understand(state: ConversationState) -> ConversationState:
     """Extract intent, declared ETA, confidence and constraints from the last message."""
     driver_id = state.get("driver_id", "")
     last_msg = state.get("last_message", "")
+    if "tools_called" not in state:
+        state["tools_called"] = []
 
     # Load driver context
     ctx = tools.get_driver_context(driver_id)
@@ -182,11 +184,13 @@ def options(state: ConversationState) -> ConversationState:
             state["shipment_id"] = shipment_id
             state["facility_id"] = active[0]["destination_facility_id"]
 
+    state.setdefault("tools_called", []).append("find_feasible_slots")
     slots = tools.find_feasible_slots(
         shipment_id=shipment_id,
         not_before_ts=not_before,
         latest_leave_ts=latest_leave,
-        limit=3
+        limit=3,
+        required_dock_type_override=state.get("equipment_requirement")
     )
 
     state["options_shown"] = slots
@@ -197,6 +201,8 @@ def options(state: ConversationState) -> ConversationState:
         state["commitment_status"] = "ESCALATED"
         state["escalation_reason"] = "No feasible dock slots available meeting requirements"
         state["workflow_stage"] = "ESCALATION"
+        state["tools_called"].append("escalate")
+        tools.escalate(state.get("thread_id", "THR-UNKNOWN"), state["escalation_reason"])
 
     return state
 
@@ -273,6 +279,7 @@ def hold(state: ConversationState) -> ConversationState:
         state["hold_succeeded"] = False
         return state
 
+    state.setdefault("tools_called", []).append("hold_slot")
     res = tools.hold_slot(slot_id=slot_id, shipment_id=shipment_id, hold_minutes=10)
     if res.get("held"):
         state["held_slot_id"] = res["slot_id"]
@@ -297,6 +304,7 @@ def request(state: ConversationState) -> ConversationState:
     """Call tools.request_confirmation; commitment_status becomes 'REQUESTED', never 'CONFIRMED' here."""
     apt_id = state.get("appointment_id")
     if apt_id:
+        state.setdefault("tools_called", []).append("request_confirmation")
         res = tools.request_confirmation(apt_id)
         state["commitment_status"] = "REQUESTED"
         state["confirmation_message_id"] = res.get("message_id")
@@ -314,6 +322,7 @@ def status_node(state: ConversationState) -> ConversationState:
             apt_id = row["appointment_id"]
             state["appointment_id"] = apt_id
     if apt_id:
+        state.setdefault("tools_called", []).append("get_request_status")
         res = tools.get_request_status(apt_id)
         state["commitment_status"] = res.get("appointment_status", "REQUESTED")
         state["latest_warehouse_reply"] = res.get("latest_warehouse_reply")
@@ -332,6 +341,8 @@ def escalate(state: ConversationState) -> ConversationState:
     if not state.get("escalation_reason"):
         state["escalation_reason"] = "Assistance requested or out of scope request"
     state["workflow_stage"] = "ESCALATION"
+    state.setdefault("tools_called", []).append("escalate")
+    tools.escalate(state.get("thread_id", "THR-UNKNOWN"), state["escalation_reason"])
     return state
 
 
