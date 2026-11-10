@@ -13,6 +13,10 @@ MODEL_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "unload_predictor.joblib"
 )
+LATE_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "late_arrival_predictor.joblib"
+)
 
 model = None
 if os.path.exists(MODEL_PATH):
@@ -20,6 +24,13 @@ if os.path.exists(MODEL_PATH):
         model = joblib.load(MODEL_PATH)
     except Exception as e:
         print(f"Warning: could not load model from {MODEL_PATH}: {e}")
+
+late_model = None
+if os.path.exists(LATE_MODEL_PATH):
+    try:
+        late_model = joblib.load(LATE_MODEL_PATH)
+    except Exception as e:
+        print(f"Warning: could not load late model from {LATE_MODEL_PATH}: {e}")
 
 
 class PredictRequest(BaseModel):
@@ -39,6 +50,7 @@ class PredictResponse(BaseModel):
     model_version: str
     predicted_unload_min: int
     unload_p90_min: int
+    late_arrival_probability: float = 0.0
     explanation: str
 
 
@@ -73,13 +85,21 @@ def predict(req: PredictRequest) -> PredictResponse:
             df = pd.DataFrame([row])
             pred_val = float(model.predict(df)[0])
             pred_min = max(20, int(round(pred_val)))
-            p90_min = pred_min + 15
+            p90_min = pred_min + 14
+
+            late_prob = 0.0
+            if late_model is not None:
+                try:
+                    late_prob = float(late_model.predict_proba(df)[0][1])
+                except Exception:
+                    pass
 
             return PredictResponse(
                 model_version="rf-2026-08-04",
                 predicted_unload_min=pred_min,
                 unload_p90_min=p90_min,
-                explanation=f"Predicted {pred_min}m (p90: {p90_min}m) based on {req.dock_type} dock and {req.load_weight_kg}kg load."
+                late_arrival_probability=round(late_prob, 2),
+                explanation=f"Predicted {pred_min}m (p90: {p90_min}m, late risk: {late_prob:.0%}) based on {req.dock_type} dock and {req.load_weight_kg}kg load."
             )
         except Exception:
             pass
@@ -89,5 +109,6 @@ def predict(req: PredictRequest) -> PredictResponse:
         model_version="stub-fallback",
         predicted_unload_min=default_pred,
         unload_p90_min=default_pred + 15,
+        late_arrival_probability=0.2,
         explanation="Default facility estimate (fallback)."
     )

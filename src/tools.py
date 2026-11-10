@@ -358,16 +358,86 @@ def hold_slot(
     Create a PENDING_CONFIRMATION appointment.
 
     Use BEGIN IMMEDIATE so concurrent holds cannot interleave.
-
     Catch IntegrityError and return:
-
     {
         "held": False,
         "reason": "slot taken"
     }
     """
+    now_ts = os.getenv("SIMULATED_NOW", "2026-08-04T10:30:00+05:30")
+    try:
+        now_dt = datetime.fromisoformat(now_ts)
+    except Exception:
+        now_dt = datetime(2026, 8, 4, 10, 30, 0)
+    expires_dt = now_dt + timedelta(minutes=hold_minutes)
+    expires_ts = expires_dt.isoformat()
 
-    raise NotImplementedError
+    con = _con()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+
+        # Check existing active appointment for this shipment
+        curr_row = con.execute(
+            "SELECT appointment_id FROM appointments WHERE shipment_id = ? AND is_current = 1",
+            (shipment_id,)
+        ).fetchone()
+        replaced_id = curr_row["appointment_id"] if curr_row else None
+
+        if replaced_id:
+            con.execute(
+                "UPDATE appointments SET is_current = 0, updated_at = ? WHERE appointment_id = ?",
+                (now_ts, replaced_id)
+            )
+
+        import uuid
+        apt_suffix = uuid.uuid4().hex[:6].upper()
+        appointment_id = f"APT-{shipment_id}-{apt_suffix}"
+
+        con.execute(
+            """
+            INSERT INTO appointments (
+                appointment_id,
+                shipment_id,
+                slot_id,
+                appointment_status,
+                booking_source,
+                is_current,
+                booked_at,
+                replaced_appointment_id,
+                updated_at
+            ) VALUES (?, ?, ?, 'PENDING_CONFIRMATION', 'DRIVER_CHAT', 1, ?, ?, ?)
+            """,
+            (appointment_id, shipment_id, slot_id, now_ts, replaced_id, now_ts)
+        )
+        con.execute("COMMIT")
+
+        return {
+            "held": True,
+            "appointment_id": appointment_id,
+            "slot_id": slot_id,
+            "shipment_id": shipment_id,
+            "hold_expires_at": expires_ts,
+            "hold_minutes": hold_minutes,
+        }
+
+    except sqlite3.IntegrityError:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        return {
+            "held": False,
+            "reason": "slot taken",
+        }
+    except Exception as exc:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        return {
+            "held": False,
+            "reason": str(exc),
+        }
 
 
 def request_confirmation(
@@ -375,19 +445,73 @@ def request_confirmation(
 ) -> dict:
     """
     Ask warehouse to confirm.
-
     Classroom version writes an operational_messages row.
-
     Return:
-
     {
         "appointment_id": ...,
         "status": "PENDING_CONFIRMATION",
         "message_id": ...
     }
     """
+    now_ts = os.getenv("SIMULATED_NOW", "2026-08-04T10:30:00+05:30")
+    con = _con()
+    apt_row = con.execute(
+        "SELECT a.*, s.destination_facility_id FROM appointments a JOIN shipments s ON a.shipment_id = s.shipment_id WHERE a.appointment_id = ?",
+        (appointment_id,)
+    ).fetchone()
 
-    raise NotImplementedError
+    if not apt_row:
+        return {
+            "appointment_id": appointment_id,
+            "status": "ERROR",
+            "error": f"Appointment {appointment_id} not found"
+        }
+
+    apt = dict(apt_row)
+    facility_id = apt["destination_facility_id"]
+
+    # Look up facility warehouse coordinator contact
+    coord_row = con.execute(
+        "SELECT email FROM facility_contacts WHERE facility_id = ? AND contact_role = 'WAREHOUSE_COORDINATOR' AND active_flag = 1",
+        (facility_id,)
+    ).fetchone()
+    recipient_email = coord_row["email"] if coord_row and coord_row["email"] else "warehouse@skyways.example"
+
+    import uuid
+    msg_id = f"OM-{uuid.uuid4().hex[:6].upper()}"
+
+    con.execute(
+        """
+        INSERT INTO operational_messages (
+            operational_message_id,
+            shipment_id,
+            appointment_id,
+            channel,
+            sender_address,
+            recipient_address,
+            subject,
+            message_body,
+            sent_at,
+            delivery_status
+        ) VALUES (?, ?, ?, 'EMAIL', 'agent@skyways.example', ?, ?, ?, ?, 'SENT')
+        """,
+        (
+            msg_id,
+            apt["shipment_id"],
+            appointment_id,
+            recipient_email,
+            f"Slot confirmation request for {apt['shipment_id']}",
+            f"Driver accepted slot {apt['slot_id']}. Appointment {appointment_id} held with status PENDING_CONFIRMATION.",
+            now_ts
+        )
+    )
+
+    return {
+        "appointment_id": appointment_id,
+        "status": "PENDING_CONFIRMATION",
+        "message_id": msg_id,
+        "recipient": recipient_email
+    }
 
 
 def get_request_status(
@@ -396,8 +520,42 @@ def get_request_status(
     """
     Return appointment status and latest warehouse reply.
     """
+    con = _con()
+    apt_row = con.execute(
+        "SELECT appointment_id, shipment_id, slot_id, appointment_status, booked_at, confirmed_at, updated_at FROM appointments WHERE appointment_id = ?",
+        (appointment_id,)
+    ).fetchone()
 
-    raise NotImplementedError
+    if not apt_row:
+        return {
+            "appointment_id": appointment_id,
+            "status": "UNKNOWN",
+            "error": "Appointment not found"
+        }
+
+    apt = dict(apt_row)
+
+    # Check for warehouse replies in operational_messages
+    reply_row = con.execute(
+        """
+        SELECT message_body, delivery_status, sent_at
+        FROM operational_messages
+        WHERE appointment_id = ? AND delivery_status = 'REPLIED'
+        ORDER BY sent_at DESC
+        LIMIT 1
+        """,
+        (appointment_id,)
+    ).fetchone()
+
+    latest_reply = reply_row["message_body"] if reply_row else None
+
+    return {
+        "appointment_id": appointment_id,
+        "shipment_id": apt["shipment_id"],
+        "slot_id": apt["slot_id"],
+        "appointment_status": apt["appointment_status"],
+        "latest_warehouse_reply": latest_reply,
+    }
 
 
 def escalate(
@@ -406,19 +564,64 @@ def escalate(
 ) -> dict:
     """
     Mark thread for human review.
-
     Used when:
         - No feasible slot exists
         - ETA confidence remains LOW
         - OUT_OF_SCOPE request
         - Planner intervention required
-
-    TODO:
-        Update chat_threads.thread_status
-        Insert operational_messages row
     """
+    now_ts = os.getenv("SIMULATED_NOW", "2026-08-04T10:30:00+05:30")
+    con = _con()
 
-    raise NotImplementedError
+    # Update chat_threads if exists
+    thread_row = con.execute(
+        "SELECT * FROM chat_threads WHERE thread_id = ?",
+        (thread_id,)
+    ).fetchone()
+
+    shipment_id = None
+    if thread_row:
+        shipment_id = thread_row["shipment_id"]
+        con.execute(
+            "UPDATE chat_threads SET thread_status = 'ESCALATED', updated_at = ? WHERE thread_id = ?",
+            (now_ts, thread_id)
+        )
+
+    # Log operational message to operations
+    import uuid
+    msg_id = f"OM-ESC-{uuid.uuid4().hex[:6].upper()}"
+    if shipment_id:
+        con.execute(
+            """
+            INSERT INTO operational_messages (
+                operational_message_id,
+                shipment_id,
+                appointment_id,
+                channel,
+                sender_address,
+                recipient_address,
+                subject,
+                message_body,
+                sent_at,
+                delivery_status
+            ) VALUES (?, ?, NULL, 'INTERNAL', 'agent@skyways.example', 'operations@skyways.example', ?, ?, ?, 'SENT')
+            """,
+            (
+                msg_id,
+                shipment_id,
+                f"Thread {thread_id} Escalation: {reason}",
+                f"Driver exception escalated: {reason}",
+                now_ts
+            )
+        )
+
+    return {
+        "escalated": True,
+        "thread_id": thread_id,
+        "reason": reason,
+        "contact_role": "OPERATIONS_COORDINATOR",
+        "message": "Operations team will contact the driver within 15 minutes."
+    }
 
 
 def release_expired_holds(
@@ -426,11 +629,31 @@ def release_expired_holds(
 ) -> int:
     """
     Cancel expired PENDING_CONFIRMATION appointments.
-
     Return number released.
     """
+    con = _con()
+    # Any PENDING_CONFIRMATION appointment booked more than 10 minutes before now_ts
+    # In classroom dataset, holds expire in 10 minutes.
+    try:
+        now_dt = datetime.fromisoformat(now_ts)
+        cutoff_dt = now_dt - timedelta(minutes=10)
+        cutoff_ts = cutoff_dt.isoformat()
+    except Exception:
+        cutoff_ts = now_ts
 
-    raise NotImplementedError
+    cur = con.execute(
+        """
+        UPDATE appointments
+        SET appointment_status = 'CANCELLED',
+            cancelled_at = ?,
+            cancellation_reason = 'HOLD_EXPIRED',
+            updated_at = ?
+        WHERE appointment_status = 'PENDING_CONFIRMATION'
+          AND booked_at <= ?
+        """,
+        (now_ts, now_ts, cutoff_ts)
+    )
+    return cur.rowcount
 
 
 if __name__ == "__main__":

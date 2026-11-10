@@ -15,7 +15,10 @@ def db_copy():
     dst = os.path.join(tmp, "copy.db")
     shutil.copy(SRC, dst)
     yield dst
-    shutil.rmtree(tmp)
+    try:
+        shutil.rmtree(tmp)
+    except Exception:
+        pass
 
 
 def _free_slot(path):
@@ -57,6 +60,7 @@ def test_only_one_active_appointment_per_slot(db_copy):
     con = sqlite3.connect(db_copy)
     n = con.execute("""select count(*) from appointments where slot_id=? and is_current=1
                        and appointment_status in ('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')""", (slot,)).fetchone()[0]
+    con.close()
     assert n == 1
 
 

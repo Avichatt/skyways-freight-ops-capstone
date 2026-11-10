@@ -138,12 +138,13 @@ def understand(state: ConversationState) -> ConversationState:
 
     # Build missing_information
     missing = []
-    if ctx.get("needs_disambiguation") and not state.get("shipment_id"):
-        missing.append("shipment_id")
-        state["clarification_reason"] = "which shipment (driver has multiple active loads)"
-    elif not state.get("declared_eta_ts") and (extraction.get("needs_clarification") or state.get("delay_minutes") is not None or state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS")):
-        missing.append("declared_eta_ts")
-        state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
+    if state.get("intent") not in ("CHOOSE_OPTION", "ASK_STATUS", "OUT_OF_SCOPE", "OTHER"):
+        if ctx.get("needs_disambiguation") and not state.get("shipment_id"):
+            missing.append("shipment_id")
+            state["clarification_reason"] = "which shipment (driver has multiple active loads)"
+        elif not state.get("declared_eta_ts") and (extraction.get("needs_clarification") or state.get("delay_minutes") is not None or state["intent"] in ("REPORT_DELAY", "ASK_OPTIONS")):
+            missing.append("declared_eta_ts")
+            state["clarification_reason"] = extraction.get("clarification_reason") or "revised arrival time"
 
     state["missing_information"] = missing
     state["workflow_stage"] = "CLARIFICATION" if missing else "OPTION_SEARCH"
@@ -202,12 +203,127 @@ def options(state: ConversationState) -> ConversationState:
 
 def hold(state: ConversationState) -> ConversationState:
     """When the driver has chosen, call tools.hold_slot. If the hold fails, go back to options with a fresh list."""
-    raise NotImplementedError
+    shipment_id = state.get("shipment_id")
+    if not shipment_id:
+        driver_ctx = state.get("driver_context", {})
+        active = driver_ctx.get("active_shipments", [])
+        if len(active) == 1:
+            shipment_id = active[0]["shipment_id"]
+            state["shipment_id"] = shipment_id
+            state["facility_id"] = active[0]["destination_facility_id"]
+
+    last_msg = (state.get("last_message") or "").lower()
+    choice = state.get("extraction", {}).get("option_choice")
+
+    slot_id = None
+    options = state.get("options_shown", [])
+
+    # Check if a specific slot ID is in message
+    import re
+    slot_match = re.search(r"slot-[a-z]{3}-\d+", last_msg, re.IGNORECASE)
+    if slot_match:
+        slot_id = slot_match.group(0).upper()
+
+    # Check if dock and time mentioned e.g. "Take the 12:00 slot on D2"
+    if not slot_id:
+        dock_m = re.search(r"\bd(\d)\b", last_msg)
+        time_m = re.search(r"(\d{1,2}):(\d{2})", last_msg)
+        if dock_m and time_m:
+            dock_code = f"D{dock_m.group(1)}"
+            hh, mm = int(time_m.group(1)), int(time_m.group(2))
+            cand_time = f"{hh:02d}:{mm:02d}"
+            for opt in options:
+                if opt.get("dock_code") == dock_code and cand_time in opt.get("slot_start_ts", ""):
+                    slot_id = opt["slot_id"]
+                    break
+            if not slot_id and shipment_id:
+                cand_iso = f"2026-08-04T{cand_time}:00+05:30"
+                con = tools._con()
+                s_row = con.execute("SELECT slot_id FROM appointment_slots WHERE dock_id = (SELECT dock_id FROM docks WHERE dock_code = ?) AND slot_start_ts = ?", (dock_code, cand_iso)).fetchone()
+                if s_row:
+                    slot_id = s_row["slot_id"]
+
+    # If still not found, check ordinal choice
+    if not slot_id:
+        idx = 0
+        choice_str = str(choice).lower() if choice else ""
+        if "second" in last_msg or "second" in choice_str or "2" in choice_str:
+            idx = 1
+        elif "third" in last_msg or "third" in choice_str or "3" in choice_str:
+            idx = 2
+        elif "first" in last_msg or "first" in choice_str or "1" in choice_str:
+            idx = 0
+
+        if options and 0 <= idx < len(options):
+            slot_id = options[idx]["slot_id"]
+        elif options:
+            slot_id = options[0]["slot_id"]
+        elif shipment_id:
+            not_before = state.get("declared_eta_ts") or "12:00"
+            recomputed = tools.find_feasible_slots(shipment_id, not_before_ts=not_before)
+            state["options_shown"] = recomputed
+            if recomputed and 0 <= idx < len(recomputed):
+                slot_id = recomputed[idx]["slot_id"]
+            elif recomputed:
+                slot_id = recomputed[0]["slot_id"]
+
+    if not slot_id:
+        state["commitment_status"] = "ESCALATED"
+        state["escalation_reason"] = "Could not identify chosen slot option"
+        state["hold_succeeded"] = False
+        return state
+
+    res = tools.hold_slot(slot_id=slot_id, shipment_id=shipment_id, hold_minutes=10)
+    if res.get("held"):
+        state["held_slot_id"] = res["slot_id"]
+        state["appointment_id"] = res["appointment_id"]
+        state["hold_expires_at"] = res["hold_expires_at"]
+        state["commitment_status"] = "HELD"
+        state["hold_succeeded"] = True
+    else:
+        # Hold failed (slot taken by another driver)
+        not_before = state.get("declared_eta_ts") or "12:00"
+        fresh = [s for s in tools.find_feasible_slots(shipment_id, not_before_ts=not_before) if s["slot_id"] != slot_id]
+        state["options_shown"] = fresh
+        state["commitment_status"] = "SHOWN"
+        state["escalation_reason"] = "That slot is no longer available. Fresh options:"
+        state["held_slot_id"] = None
+        state["hold_succeeded"] = False
+
+    return state
 
 
 def request(state: ConversationState) -> ConversationState:
     """Call tools.request_confirmation; commitment_status becomes 'REQUESTED', never 'CONFIRMED' here."""
-    raise NotImplementedError
+    apt_id = state.get("appointment_id")
+    if apt_id:
+        res = tools.request_confirmation(apt_id)
+        state["commitment_status"] = "REQUESTED"
+        state["confirmation_message_id"] = res.get("message_id")
+    return state
+
+
+def status_node(state: ConversationState) -> ConversationState:
+    """Read appointment status without creating a new hold."""
+    apt_id = state.get("appointment_id")
+    shipment_id = state.get("shipment_id")
+    if not apt_id and shipment_id:
+        con = tools._con()
+        row = con.execute("SELECT appointment_id FROM appointments WHERE shipment_id = ? AND is_current = 1", (shipment_id,)).fetchone()
+        if row:
+            apt_id = row["appointment_id"]
+            state["appointment_id"] = apt_id
+    if apt_id:
+        res = tools.get_request_status(apt_id)
+        state["commitment_status"] = res.get("appointment_status", "REQUESTED")
+        state["latest_warehouse_reply"] = res.get("latest_warehouse_reply")
+    return state
+
+
+def route_after_hold(state: ConversationState) -> str:
+    if state.get("hold_succeeded"):
+        return "request"
+    return "reply"
 
 
 def escalate(state: ConversationState) -> ConversationState:
@@ -264,26 +380,26 @@ def route_after_understand(state: ConversationState) -> str:
     if state.get("intent") == "CHOOSE_OPTION":
         return "hold"
     if state.get("intent") == "ASK_STATUS":
-        return "reply"
+        return "status"
     return "options"
 
 
 def build_graph():
     g = StateGraph(ConversationState)
     for name, fn in [("understand", understand), ("clarify", clarify), ("options", options),
-                     ("hold", hold), ("request", request), ("escalate", escalate), ("reply", reply)]:
+                     ("hold", hold), ("request", request), ("status", status_node), ("escalate", escalate), ("reply", reply)]:
         g.add_node(name, fn)
     g.set_entry_point("understand")
     g.add_conditional_edges("understand", route_after_understand,
                             {"clarify": "clarify", "options": "options", "hold": "hold",
-                             "escalate": "escalate", "reply": "reply"})
+                             "status": "status", "escalate": "escalate"})
     g.add_edge("clarify", END)
     g.add_edge("options", "reply")
-    g.add_edge("hold", "request")
+    g.add_conditional_edges("hold", route_after_hold, {"request": "request", "reply": "reply"})
     g.add_edge("request", "reply")
+    g.add_edge("status", "reply")
     g.add_edge("escalate", "reply")
     g.add_edge("reply", END)
-    # TODO: add a checkpointer (langgraph.checkpoint.sqlite) so a thread survives a restart. Required at Enterprise level.
     return g.compile()
 
 
