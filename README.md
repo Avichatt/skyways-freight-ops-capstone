@@ -1,38 +1,84 @@
-# SkyWays Logistics capstone starter kit
+# SkyWays Smart Dock Coordination System
 
-This kit is the working folder for the SkyWays dock-coordination capstone. It contains the business data, templates that shape your thinking, code skeletons that stop the usual mistakes, and the presentation scaffolds you will fill at the end. Nothing in here is a finished answer.
+Automated freight exception resolution and dock scheduling under concurrency for truck drivers and warehouse coordinators.
 
-## Folder map
+![Architecture Diagram](docs/architecture.png)
 
-| Folder | What is inside | When you use it |
-|---|---|---|
-| `data/` | SQLite database, schema and seed SQL, data dictionary, ER diagram, dock visit history (ML), labelled driver messages (agent evaluation) | Day 1 onward |
-| `00_setup/` | Environment check script and an example `.env` | Day 1 |
-| `01_discover/` | Five Whys worksheet, pain-point depth matrix, discovery prompts, research log | Days 1 to 3 |
-| `02_scope/` | PRD-lite, ADR template with one filled example, scope ladder checklist | Days 3 to 4 |
-| `03_explore/` | Exploration notebook that traces one driver message through the tables | Day 2 |
-| `04_build/agentic/` | Conversation state, typed tool contracts, LangGraph skeleton, prompt files, evaluation cases, the no-double-booking test | Days 5 to 9 (Agentic and Hybrid tracks) |
-| `04_build/ml/` | Feature specification, baseline notebook, evaluation report template | Days 5 to 9 (ML and Hybrid tracks) |
-| `04_build/hybrid/` | Integration contract between the predictor and the agent, prediction service stub | Days 7 to 9 (Hybrid track) |
-| `04_build/scripts/` | Scenario replay and database snapshot utilities | Days 8 to 10 |
-| `05_present/` | Ten-minute presentation outline, demo script, README, LinkedIn and resume templates, panel questions | Days 10 to 12 |
-| `06_check/` | Definition of done per day and the final self-review checklist | Every day |
+---
 
-## Ten-step start
+## The Problem
 
-1. Create a virtual environment and run `pip install -r requirements.txt`.
-2. Copy `00_setup/.env.example` to `.env` and add your OpenRouter key (Agentic and Hybrid tracks only).
-3. Run `python 00_setup/setup_check.py`. Fix anything it reports before moving on.
-4. Open `03_explore/explore_skyways.ipynb` and run it top to bottom.
-5. Fill `01_discover/five_whys_worksheet.md` for the pain point you choose.
-6. Score your pain points in `01_discover/pain_point_depth_matrix.md`.
-7. Write `02_scope/prd_lite.md`. Keep it to one page.
-8. Pick your track and your scope level, then record both in `02_scope/adr_001_track_and_scope.md`.
-9. Build inside `04_build/`, committing to GitHub at the end of every working day.
-10. Fill `05_present/` in the last three days and run `06_check/self_review_checklist.md` before you submit.
+Two operations coordinators can offer the exact same warehouse dock slot to two delayed truck drivers within two minutes because dock availability was a human reading of a screen rather than a computed, exclusive state. On 4 August 2026 at Jaipur Distribution Centre (`FAC-JAI-01`), `SLOT-JAI-019` was offered simultaneously to two inbound drivers, creating cascading yard congestion and uncompensated driver detention.
 
-## Rules the kit enforces
+Detailed root-cause analysis is documented in [Five Whys Worksheet](docs/five_whys.md).
 
-- The database is the system of record. Your agent or model reads and writes through it, never around it.
-- A shown slot is not a held slot, and a held slot is not a confirmed slot. The state machine in the brief is binding.
-- Every claim in your presentation must point at a file, a test or a number in your repository.
+---
+
+## What It Does
+
+- **Understands driver delay messages in natural cab language:** Extracts revised arrival times, constraints, and equipment needs from free-form text, asking at most one targeted clarifying question when details are missing.
+- **Finds and sizes feasible dock doors with ML duration models:** Applies six physical and operational constraints against live facility status while using conservative p90 unload duration predictions to ensure trucks fit before doors close.
+- **Reserves slots atomically under concurrency without double-booking:** Places temporary 10-minute holds with database-level uniqueness enforcement, alerts the warehouse for formal confirmation, and escalates out-of-scope issues to human staff.
+
+---
+
+## Demo
+
+To run the live demonstration locally from a clean state:
+
+```bash
+# 1. Restore the database to the clean demonstration snapshot
+python scripts/snapshot_db.py restore
+
+# 2. Run the interactive driver coordination console
+python src/agent/agent_skeleton.py
+
+# 3. Prove concurrency guarantees (4 concurrent holds on 1 slot -> exactly 1 winner)
+python scripts/replay_scenario.py
+```
+
+---
+
+## Proof
+
+| Claim | Evidence / Command Output |
+| :--- | :--- |
+| **Zero double-bookings under concurrent hold races** | `pytest tests/test_no_double_booking.py -v` (1/1 passed)<br>`python scripts/replay_scenario.py` $\to$ `PASS, exactly one hold` (1 HELD, 3 REJECTED) |
+| **100% benchmark evaluation pass rate** | `pytest tests/test_eval_cases.py -v` (12/12 passed across happy path, clarification, constraints, escalation, concurrency, duplicate) |
+| **Unload ML model beats dock-type median baseline by 41.9%** | `src/model/unload_predictor.joblib`<br>Test MAE: **8.08 min** vs Baseline MAE: **13.90 min** on time-ordered July 1 split (`docs/eval_report.md`) |
+| **Late arrival classifier outperforms majority class baseline** | `src/model/late_arrival_predictor.joblib`<br>Accuracy: **69.6%** vs Baseline: **53.6%**, ROC AUC: **0.746** |
+| **Predictor integration contract honoured with 300ms SLA & fallback** | `pytest tests/test_day8.py -v` (5/5 passed)<br>In-process joblib fallback and database default guarantee sub-300ms SLA (`src/hybrid/integration_contract.md`) |
+| **Full automated regression suite passes cleanly** | `pytest tests/ -v` (**51/51 passed** across all 6 test suites in 33s) |
+
+---
+
+## Limits and Next Steps
+
+### Three Known Limits
+1. **Single-Facility Rolling Horizon:** The system resolves delays for individual arriving trucks at their destination facility; it does not solve multi-stop global combinatorial network re-routing.
+2. **Human-in-the-Loop Confirmation:** A slot is held as `PENDING_CONFIRMATION` until warehouse staff approve it; the autonomous system never unilaterally commits dock capacity without human sign-off.
+3. **Static Hold Expiry Window:** Slot reservations currently expire after a fixed 10-minute window regardless of driver distance or traffic severity.
+
+### Next Steps
+1. **OR-Tools Rolling Horizon Rescheduling:** Formulate trucks as jobs and dock doors as machines using CP-SAT to re-optimize 4-hour receiving windows whenever an ETA shifts. *(Effort: 6 days)*
+2. **Background Hold Expiry and Release Worker:** Implement an asynchronous background daemon calling `release_expired_holds()` periodically to auto-reclaim abandoned holds back to `AVAILABLE`. *(Effort: 1 day)*
+
+---
+
+## Data
+
+All records are based on the synthetic SkyWays classroom dataset (snapshot timestamp: **4 August 2026, 10:30 IST**):
+- **21 live shipments** across 2 receiving facilities (`FAC-JAI-01` Jaipur, `FAC-GGN-01` Gurugram).
+- **6,040 historical dock visit logs** (February–July 2026) for ML duration regression and delay classification.
+- **148 labelled driver chat messages** for intent classification and entity extraction benchmarking.
+- Schema definitions and field semantics are available in [`data/skyways_data_dictionary.csv`](data/skyways_data_dictionary.csv).
+
+---
+
+## Architecture and ADRs
+
+- [System Architecture & C4 Diagrams](docs/architecture.md)
+- [ADR-001: Hybrid Simple Architecture & Database Concurrency](docs/adr/adr_001_hybrid_simple.md)
+- [Model Evaluation Report](docs/eval_report.md)
+- [PRD-Lite Specification](docs/prd_lite.md)
+- [Predictor Integration Contract](src/hybrid/integration_contract.md)

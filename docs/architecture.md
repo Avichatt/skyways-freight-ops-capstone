@@ -2,7 +2,28 @@
 
 
 
-\## 1. Architecture overview
+\## 1. High-level flow: How it works in 4 simple steps
+
+A delayed driver sends one short message from the cab. Here is how the system safely finds, sizes, and books a dock door without double-booking:
+
+```mermaid
+flowchart LR
+    Step1["<b>Step 1: Driver Speaks</b><br>Driver texts delay: 'Reaching 11:20, slot after 12?'<br><i>LLM extracts ETA & constraints</i>"]
+    Step2["<b>Step 2: ML Sizes Unload</b><br>Model predicts p90 unload duration (e.g. 78 min)<br><i>Filters out slots that would overrun</i>"]
+    Step3["<b>Step 3: Atomic 10-Min Hold</b><br>Driver picks option -> SQLite BEGIN IMMEDIATE<br><i>Unique index prevents double booking</i>"]
+    Step4["<b>Step 4: Warehouse Confirms</b><br>Request sent to warehouse operations<br><i>Coordinator confirms; driver gets gate pass</i>"]
+
+    Step1 --> Step2 --> Step3 --> Step4
+```
+
+### The Three Golden Rules
+1. **The LLM decides what to say, never what is booked:** It parses language and formats responses, but cannot execute SQL or declare a booking confirmed.
+2. **Tools & ML decide what is true:** Physical compatibility, facility hours, and conservative p90 unload durations decide which slots are feasible.
+3. **The database decides what is committed:** The partial unique index `ux_active_appointment_per_slot` is the sole arbiter of capacity. Two concurrent holds on the same slot result in exactly one winner and zero double bookings.
+
+---
+
+## 2. Architecture overview
 
 
 

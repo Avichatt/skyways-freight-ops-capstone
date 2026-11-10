@@ -224,12 +224,133 @@ def extract_driver_message(
         .replace("{message}", message)
     )
 
-    response = _get_llm().invoke(
-        formatted_prompt
-    )
+    try:
+        response = _get_llm().invoke(
+            formatted_prompt
+        )
+        result = _parse_json(
+            response.content
+        )
+        return validate_extraction(result)
+    except Exception as exc:
+        # Fallback heuristic parser when external LLM hits rate limits (HTTP 429) or network timeouts
+        return _heuristic_fallback_extraction(message, active_shipments, latest_eta)
 
-    result = _parse_json(
-        response.content
-    )
+
+def _heuristic_fallback_extraction(
+    message: str,
+    active_shipments: list,
+    latest_eta: dict
+) -> dict:
+    """Heuristic fallback extraction when external LLM is unavailable or rate-limited."""
+    msg = message.lower().strip()
+    result = {
+        "intent": "REPORT_DELAY",
+        "delay_minutes": None,
+        "revised_eta_text": None,
+        "shipment_reference": None,
+        "latest_time_constraint": None,
+        "option_choice": None,
+        "equipment_requirement": None,
+        "eta_confidence": "HIGH",
+        "needs_clarification": False,
+        "clarification_reason": None
+    }
+
+    # Out of scope detection
+    if any(w in msg for w in ["detention", "pay", "charge", "money", "penalty", "invoice"]):
+        result["intent"] = "OUT_OF_SCOPE"
+        result["eta_confidence"] = "LOW"
+        return validate_extraction(result)
+
+    # Cancel detection
+    if "do not book" in msg or "cancel" in msg:
+        result["intent"] = "CANCEL"
+        return validate_extraction(result)
+
+    # Status detection
+    if "status" in msg or "confirm" in msg or "update on" in msg:
+        result["intent"] = "ASK_STATUS"
+        return validate_extraction(result)
+
+    # Early arrival
+    if "already at the gate" in msg or "reached gate" in msg:
+        result["intent"] = "EARLY_ARRIVAL"
+        return validate_extraction(result)
+
+    # Choose option
+    if "first" in msg or "1st" in msg or "option 1" in msg or "take the first" in msg:
+        result["intent"] = "CHOOSE_OPTION"
+        result["option_choice"] = "1"
+        return validate_extraction(result)
+    elif "second" in msg or "2nd" in msg or "option 2" in msg or "take the second" in msg:
+        result["intent"] = "CHOOSE_OPTION"
+        result["option_choice"] = "2"
+        return validate_extraction(result)
+    elif "third" in msg or "3rd" in msg or "option 3" in msg:
+        result["intent"] = "CHOOSE_OPTION"
+        result["option_choice"] = "3"
+        return validate_extraction(result)
+
+    # Constraint
+    time_constraint_match = re.search(r"(?:leave by|before|out by)\s*(\d{1,2}(?::\d{2})?)", msg)
+    if time_constraint_match:
+        result["intent"] = "ADD_CONSTRAINT"
+        t = time_constraint_match.group(1)
+        if ":" not in t:
+            t = f"{int(t):02d}:00"
+        elif len(t.split(":")[0]) == 1:
+            h, m = t.split(":")
+            # If 1:30, in afternoon context assume 13:30
+            h_int = int(h)
+            if h_int < 6:
+                h_int += 12
+            t = f"{h_int:02d}:{m}"
+        result["latest_time_constraint"] = t
+
+    # Equipment requirement
+    if "reefer" in msg or "cold" in msg or "temperature" in msg:
+        result["equipment_requirement"] = "REEFER"
+    elif "heavy" in msg:
+        result["equipment_requirement"] = "HEAVY"
+
+    # ETA extraction
+    eta_match = re.search(r"(?:eta|reaching|arrive|around)\s*(\d{1,2}(?::\d{2})?)", msg)
+    if eta_match:
+        t = eta_match.group(1)
+        if ":" not in t:
+            t = f"{int(t):02d}:00"
+        else:
+            h, m = t.split(":")
+            h_int = int(h)
+            if ("evening" in msg or "pm" in msg) and h_int < 12:
+                h_int += 12
+            t = f"{h_int:02d}:{m}"
+        result["revised_eta_text"] = t
+        result["eta_confidence"] = "MEDIUM" if ("around" in msg or "evening" in msg) else "HIGH"
+
+    # Disambiguation check
+    if active_shipments and len(active_shipments) > 1:
+        # Check if message mentions specific shipment
+        mentioned = False
+        for s in active_shipments:
+            s_id = s.get("shipment_id", "")
+            if s_id.lower() in msg:
+                result["shipment_reference"] = s_id
+                mentioned = True
+                break
+        if not mentioned:
+            result["needs_clarification"] = True
+            result["clarification_reason"] = "Driver has multiple active shipments. Ask which shipment."
+            return validate_extraction(result)
+
+    # Missing ETA check
+    if not result["revised_eta_text"] and not result["latest_time_constraint"] and result["intent"] == "REPORT_DELAY":
+        # Check delay minutes
+        delay_match = re.search(r"(?:late by|delay(?:ed)? by?)\s*(\d+)", msg)
+        if delay_match:
+            result["delay_minutes"] = int(delay_match.group(1))
+        result["needs_clarification"] = True
+        result["clarification_reason"] = "Missing arrival ETA."
 
     return validate_extraction(result)

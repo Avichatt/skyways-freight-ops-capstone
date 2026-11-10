@@ -194,8 +194,15 @@ def clarify(state: ConversationState) -> ConversationState:
     prompt_tpl = _prompt("clarify_prompt.md")
     prompt = prompt_tpl.replace("{clarification_reason}", reason).replace("{message}", msg)
 
-    response = llm.invoke(prompt)
-    reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+    try:
+        response = llm.invoke(prompt)
+        reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+    except Exception:
+        # Resilient fallback when external LLM is rate-limited or offline
+        if "shipment" in reason.lower() or "load" in reason.lower() or "multiple" in reason.lower():
+            reply_text = "You have multiple active shipments. Which load are you currently delivering?"
+        else:
+            reply_text = f"Could you provide your expected arrival time? ({reason})"
 
     state["reply_to_driver"] = reply_text
     state["commitment_status"] = "NONE"
@@ -416,8 +423,24 @@ def reply(state: ConversationState) -> ConversationState:
         .replace("{latest_leave}", state.get("latest_leave_ts") or "None")
     )
 
-    response = llm.invoke(prompt)
-    reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+    try:
+        response = llm.invoke(prompt)
+        reply_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+    except Exception:
+        # Resilient fallback when external LLM is rate-limited or offline
+        if status == "ESCALATED":
+            reply_text = f"STATUS: ESCALATED\nThis request has been escalated to operations ({state.get('escalation_reason') or 'planner review required'}). A warehouse coordinator will contact you shortly."
+        elif status == "SHOWN":
+            reply_text = f"STATUS: SHOWN at {facility}\n{opts_str}\nPlease choose an option to hold."
+        elif status == "HELD":
+            reply_text = f"STATUS: HELD at {facility}\n{held_str}. Requesting warehouse confirmation."
+        elif status == "REQUESTED":
+            reply_text = f"STATUS: REQUESTED at {facility}\nAppointment confirmation requested from warehouse. Please wait."
+        elif status == "CONFIRMED":
+            reply_text = f"STATUS: CONFIRMED at {facility}\nAppointment confirmed. Check in up to 60 minutes early."
+        else:
+            reply_text = f"STATUS: {status}\n{state.get('reply_to_driver') or 'Understood.'}"
+
     state["reply_to_driver"] = reply_text
     return state
 
@@ -457,13 +480,19 @@ def build_graph():
 
 if __name__ == "__main__":
     graph = build_graph()
-    state: ConversationState = {"thread_id": "THR-DEMO", "driver_id": "DRV006", "commitment_status": "NONE"}
+    state: ConversationState = {"thread_id": "THR001", "driver_id": "DRV006", "commitment_status": "NONE"}
     print("SkyWays agent console. Type as the driver. Ctrl+C to stop.")
     while True:
-        msg = input("driver> ")
-        state["last_message"] = msg
-        state = graph.invoke(state)
-        print("agent>", state.get("reply_to_driver"))
+        try:
+            msg = input("driver> ")
+            if not msg.strip():
+                continue
+            state["last_message"] = msg
+            state = graph.invoke(state)
+            print("agent>", state.get("reply_to_driver"))
+        except (EOFError, KeyboardInterrupt):
+            print("\nSession ended.")
+            break
 
 # ---------------------------------------------------------------------------------------------
 # Test input cases for the console loop (type these as the driver once the nodes are implemented)
