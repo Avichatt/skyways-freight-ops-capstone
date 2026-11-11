@@ -628,8 +628,8 @@ def escalate(
     if thread_row:
         shipment_id = thread_row["shipment_id"]
         con.execute(
-            "UPDATE chat_threads SET thread_status = 'ESCALATED', updated_at = ? WHERE thread_id = ?",
-            (now_ts, thread_id)
+            "UPDATE chat_threads SET thread_status = 'ESCALATED' WHERE thread_id = ?",
+            (thread_id,)
         )
 
     # Log operational message to operations

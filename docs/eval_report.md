@@ -20,10 +20,18 @@
 | Random Forest (Outliers Filtered) | 5.93 | 12.34 | Yes (+57.3% improvement) |
 
 ### Target 2: Late Arrival Classifier (`arrival_delta_min > 30`)
-| Model | Accuracy | Precision | ROC AUC | Beats Baseline? |
-|---|---|---|---|---|
-| Baseline (Always On-Time) | 53.6% | 0.0% | 0.500 | n/a |
-| Random Forest Classifier | 69.6% | 71.6% | 0.746 | Yes (+16.0% accuracy gain) |
+| Model | Accuracy | Precision | Recall | ROC AUC | Brier Score | Beats Baseline? |
+|---|---|---|---|---|---|---|
+| Baseline (Always On-Time) | 53.63% | 0.00% | 0.00% | 0.5000 | 0.2487 | n/a |
+| Random Forest (Initial) | 69.64% | 71.60% | 58.40% | 0.7455 | 0.2084 | Yes (+16.0% accuracy gain) |
+| **HistGradientBoosting (Upgraded)** | **70.07%** | **71.30%** | **59.33%** | **0.7512** | **0.2009** | **Yes (+16.4% gain, best AUC & calibration)** |
+
+> **Feature Engineering Note:** The upgraded HistGradientBoosting classifier incorporates strictly pre-arrival engineered signals:
+> - `carrier_hist_delay_rate` & `corridor_hist_delay_rate`: Historical out-of-fold carrier and lane punctuality.
+> - `kg_per_pallet`: Pallet density metric indicating cargo handling complexity.
+> - `is_evening_departure` & `distance_evening_interaction`: Inter-city transit through evening rush hours.
+> - `rain_distance_interaction`: Compound monsoon impact over long hauls.
+> - Time-series cross-validation optimized (`learning_rate=0.03, max_leaf_nodes=20, min_samples_leaf=15, l2_regularization=4.0`).
 
 ## What Drives the Prediction (Top Five Features in Business Words)
 1. **Pallet count (41.9% importance):** Freight volume directly dictates the physical number of forklift cycles required to clear the truck.
@@ -55,5 +63,5 @@ The model has no real-time visibility into:
 
 ## Day 7 — Commitment, Error Bands & Second Target Summary
 - Error Bands: Median error 5.21 min, p90 error 14.19 min (15-min operational buffer verified)
-- Second Target: Late arrival classifier (`arrival_delta_min > 30`) achieves 69.6% accuracy and 0.746 ROC AUC on chronological test split
+- Second Target: Late arrival classifier (`arrival_delta_min > 30`) achieves 70.07% accuracy, 0.7512 ROC AUC, and 0.2009 Brier score on chronological test split using HistGradientBoosting
 - Commitment Tools: `hold_slot` (with `BEGIN IMMEDIATE`), `request_confirmation` (operational messaging), and `get_request_status` implemented and passing concurrency tests.

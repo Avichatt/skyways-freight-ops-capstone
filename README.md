@@ -46,7 +46,7 @@ python scripts/replay_scenario.py
 | **Zero double-bookings under concurrent hold races** | `pytest tests/test_no_double_booking.py -v` (1/1 passed)<br>`python scripts/replay_scenario.py` $\to$ `PASS, exactly one hold` (1 HELD, 3 REJECTED) |
 | **100% benchmark evaluation pass rate** | `pytest tests/test_eval_cases.py -v` (12/12 passed across happy path, clarification, constraints, escalation, concurrency, duplicate) |
 | **Unload ML model beats dock-type median baseline by 41.9%** | `src/model/unload_predictor.joblib`<br>Test MAE: **8.08 min** vs Baseline MAE: **13.90 min** on time-ordered July 1 split (`docs/eval_report.md`) |
-| **Late arrival classifier outperforms majority class baseline** | `src/model/late_arrival_predictor.joblib`<br>Accuracy: **69.6%** vs Baseline: **53.6%**, ROC AUC: **0.746** |
+| **HistGradientBoosting delay classifier outperforms baseline** | `src/model/hist_gradient_boosting_classifier.joblib`<br>Accuracy: **70.1%** vs Baseline: **53.6%**, ROC AUC: **0.751**, Brier: **0.201** |
 | **Predictor integration contract honoured with 300ms SLA & fallback** | `pytest tests/test_day8.py -v` (5/5 passed)<br>In-process joblib fallback and database default guarantee sub-300ms SLA (`src/hybrid/integration_contract.md`) |
 | **Full automated regression suite passes cleanly** | `pytest tests/ -v` (**51/51 passed** across all 6 test suites in 33s) |
 

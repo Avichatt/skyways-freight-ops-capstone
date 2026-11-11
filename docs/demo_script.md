@@ -4,7 +4,7 @@ Six moves in three minutes, each with the words to say and the exact system outp
 
 ---
 
-### Setup 
+### Setup
 
 ```bash
 # Ensure clean state from snapshot
@@ -20,7 +20,7 @@ Have two terminal windows open side-by-side:
 
 ### The 3-Minute Choreography
 
-| Time           | Action                                                                              | What You Say                                                                          | What the Panel Sees                                                                                                                                         |
+| Time           | Action                                                                               | What You Say                                                                          | What the Panel Sees                                                                                                                                         |
 | :------------- | :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **0:00** | Driver message:`Traffic after Shahpura. Reaching around 11:20. Any slot after 12?` | *"A real message from the dataset. Watch which tools fire."*                        | Understand extracts ETA 11:20 and 12:00 constraint; `find_feasible_slots` returns 3 numbered options. Status: **SHOWN**.                            |
 | **0:40** | Driver message:`I need to leave by 1:30.`                                          | *"A constraint. The list shrinks without me asking anything again."*                | Constraint parsed as `latest_leave_ts = 13:30`. Slot ending at 14:00 drops out. Status: **SHOWN**.                                                  |

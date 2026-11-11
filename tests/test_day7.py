@@ -21,7 +21,7 @@ import pandas as pd
 import numpy as np
 
 import src.tools as tools
-from src.model.train_late_model import CATEGORICAL_FEATURES, NUMERIC_FEATURES
+from src.model.train_hist_gradient_boosting import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
 DB_SRC = os.path.join(os.path.dirname(__file__), "..", "data", "skyways_freight_operations.db")
 
@@ -139,9 +139,11 @@ def test_release_expired_holds(isolated_db):
 
 
 def test_late_arrival_model_beats_baseline():
-    """Verify second ML model (late arrival) outperforms naive baseline."""
-    model_path = os.path.join(os.path.dirname(__file__), "..", "src", "model", "late_arrival_predictor.joblib")
-    assert os.path.exists(model_path), "late_arrival_predictor.joblib model artifact must exist"
+    """Verify second ML model (HistGradientBoostingClassifier) outperforms naive baseline."""
+    hgb_path = os.path.join(os.path.dirname(__file__), "..", "src", "model", "hist_gradient_boosting_classifier.joblib")
+    legacy_path = os.path.join(os.path.dirname(__file__), "..", "src", "model", "late_arrival_predictor.joblib")
+    model_path = hgb_path if os.path.exists(hgb_path) else legacy_path
+    assert os.path.exists(model_path), "hist_gradient_boosting_classifier.joblib model artifact must exist"
 
     clf = joblib.load(model_path)
     df = pd.read_csv("data/dock_visit_history.csv").drop_duplicates()
@@ -157,10 +159,11 @@ def test_late_arrival_model_beats_baseline():
     df["arrival_month"] = df["planned_arrival_ts"].dt.month
 
     split_idx = int(len(df) * 0.8)
-    X_test = df.iloc[split_idx:][CATEGORICAL_FEATURES + NUMERIC_FEATURES]
-    y_test = df.iloc[split_idx:]["is_late"]
+    test_df = df.iloc[split_idx:].copy()
+    y_test = test_df["is_late"]
 
-    preds = clf.predict(X_test)
+    # Pipeline's _prepare_df handles feature engineering internally
+    preds = clf.predict(test_df)
     model_acc = (preds == y_test).mean()
     baseline_acc = (np.zeros_like(y_test) == y_test).mean()
 

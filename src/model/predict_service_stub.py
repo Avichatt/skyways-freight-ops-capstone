@@ -13,6 +13,10 @@ MODEL_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "unload_predictor.joblib"
 )
+HIST_GB_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "hist_gradient_boosting_classifier.joblib"
+)
 LATE_MODEL_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "late_arrival_predictor.joblib"
@@ -25,12 +29,13 @@ if os.path.exists(MODEL_PATH):
     except Exception as e:
         print(f"Warning: could not load model from {MODEL_PATH}: {e}")
 
-late_model = None
-if os.path.exists(LATE_MODEL_PATH):
+hist_gb_model = None
+active_classifier_path = HIST_GB_MODEL_PATH if os.path.exists(HIST_GB_MODEL_PATH) else LATE_MODEL_PATH
+if os.path.exists(active_classifier_path):
     try:
-        late_model = joblib.load(LATE_MODEL_PATH)
+        hist_gb_model = joblib.load(active_classifier_path)
     except Exception as e:
-        print(f"Warning: could not load late model from {LATE_MODEL_PATH}: {e}")
+        print(f"Warning: could not load classifier from {active_classifier_path}: {e}")
 
 
 class PredictRequest(BaseModel):
@@ -88,9 +93,9 @@ def predict(req: PredictRequest) -> PredictResponse:
             p90_min = pred_min + 14
 
             late_prob = 0.0
-            if late_model is not None:
+            if hist_gb_model is not None:
                 try:
-                    late_prob = float(late_model.predict_proba(df)[0][1])
+                    late_prob = float(hist_gb_model.predict_proba(df)[0][1])
                 except Exception:
                     pass
 
