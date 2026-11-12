@@ -105,3 +105,4 @@ As documented in our PRD-lite and architecture review:
 1. **Single-Facility Horizon:** The agent manages individual arrivals at their destination hub; it does not solve multi-stop combinatorial vehicle routing across multiple transshipment points.
 2. **Human-in-the-Loop Dependency:** The system automates option discovery and temporary holds, but requires a human warehouse coordinator to officially confirm the appointment (`CONFIRMED`).
 3. **Static Expiry Window:** Holds expire after a fixed 10-minute window rather than dynamically scaling based on driver proximity or telemetry traffic congestion.
+

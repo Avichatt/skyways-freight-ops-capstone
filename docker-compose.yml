@@ -1,0 +1,33 @@
+services:
+  # 1. Automated Test Runner: verifies all 51 tests in an isolated Linux container
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["pytest", "tests/", "-v"]
+
+  # 2. Predictive ML Microservice: FastAPI service for unload duration and delay risk
+  predictor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "src.model.predict_service_stub:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 3. Interactive Agent Console: Driver chat interface in container
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    command: ["python", "src/agent/agent_skeleton.py"]
+    depends_on:
+      - predictor
+

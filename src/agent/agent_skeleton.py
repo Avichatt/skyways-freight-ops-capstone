@@ -28,10 +28,11 @@ from extractor import extract_driver_message
 import tools
 
 load_dotenv()
+llm_api_key = os.getenv("OPENROUTER_API_KEY") or "mock-key-for-offline-eval"
 llm = ChatOpenAI(
     model=os.getenv("LLM_MODEL", "anthropic/claude-3.5-haiku"),
     base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-    api_key=os.getenv("OPENROUTER_API_KEY"),
+    api_key=llm_api_key,
     temperature=0,
 )
 

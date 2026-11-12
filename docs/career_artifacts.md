@@ -33,3 +33,4 @@ Check out the full architecture and code on GitHub: https://github.com/Avichatt/
 
 ### Bullet 3 (Agentic System Architecture & Reliability):
 * **Built a production-grade autonomous scheduling agent maintaining a 100% pass rate across 51 regression tests** by designing a deterministic LangGraph state machine with 4-stage commitment lifecycles (`SHOWN` $\to$ `HELD` $\to$ `REQUESTED` $\to$ `CONFIRMED`) and a resilient zero-downtime heuristic extractor fallback for API rate-limiting resilience.
+

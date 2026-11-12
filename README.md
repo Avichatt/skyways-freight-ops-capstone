@@ -35,6 +35,9 @@ python src/agent/agent_skeleton.py
 
 # 3. Prove concurrency guarantees (4 concurrent holds on 1 slot -> exactly 1 winner)
 python scripts/replay_scenario.py
+
+# 4. (Optional) Run entire test suite inside isolated Docker container
+docker compose run --rm test
 ```
 
 ---
